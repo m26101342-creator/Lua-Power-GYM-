@@ -1,0 +1,20 @@
+{
+  "name": "Lua Power GYM",
+  "short_name": "LuaPower",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#f1f5f9",
+  "icons": [
+    {
+      "src": "https://i.postimg.cc/K86FS7PH/1000196294_fotor_enhance_20260107104529.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "https://i.postimg.cc/K86FS7PH/1000196294_fotor_enhance_20260107104529.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

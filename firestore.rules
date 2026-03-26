@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: clients
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - phone: string (required) - PII
+    //   - startDate: string (required)
+    //   - durationDays: number (required)
+    //   - expiryDate: string (required)
+    //   - amount: number (required)
+    //   - notes: string (optional)
+    //   - avatar: string (optional)
+    //   - enrolledClasses: list (optional)
+    //
+    // Collection: classes
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - instructor: string (required)
+    //   - startTime: string (required)
+    //   - duration: string (required)
+    //   - maxSpots: number (required)
+    //   - weekDays: list (required)
+    //   - price: number (required)
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == "m26101342@gmail.com";
+    }
+
+    match /clients/{clientId} {
+      // Temporary public read access for demonstration purposes (Client Login via phone number)
+      // TODO: Implement a secure login method (e.g., Firebase Auth) for production
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /classes/{classId} {
+      // Temporary public read access for demonstration purposes
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A gym user (student or admin)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["STUDENT", "ADMIN"] },
+        "status": { "type": "string", "enum": ["PENDING_PAYMENT", "ACTIVE", "EXPIRED"] },
+        "subscription_end_date": { "type": "string", "format": "date-time" },
+        "enrolled_classes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "qr_code_hash": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "role", "status", "qr_code_hash"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "A support message or payment proof",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["PAYMENT_PROOF", "GENERAL_SUPPORT"] },
+        "content": { "type": "string" },
+        "attachment_url": { "type": "string" },
+        "status": { "type": "string", "enum": ["UNREAD", "READ", "APPROVED", "REJECTED"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "type", "status", "created_at"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "is_read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "title", "message", "is_read", "created_at"]
+    },
+    "GymClass": {
+      "title": "GymClass",
+      "description": "A gym class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "instructor": { "type": "string" },
+        "startTime": { "type": "string" },
+        "duration": { "type": "string" },
+        "maxSpots": { "type": "number" },
+        "weekDays": {
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "price": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "instructor", "startTime", "duration", "maxSpots", "weekDays", "price"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Collection of all gym users"
+    },
+    "support_messages": {
+      "schema": { "$ref": "#/entities/SupportMessage" },
+      "description": "Collection of support messages and payment proofs"
+    },
+    "notifications": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Collection of notifications"
+    },
+    "classes": {
+      "schema": { "$ref": "#/entities/GymClass" },
+      "description": "Collection of all gym classes"
+    }
+  }
+}
