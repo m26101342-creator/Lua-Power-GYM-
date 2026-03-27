@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { 
   Search, 
   MessageCircle, 
@@ -33,10 +33,12 @@ import {
   Menu,
   PieChart,
   QrCode,
-  Tags
+  Tags,
+  Pencil
 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { QRScanner } from '../components/QRScanner';
+import { ScannedClientModal } from '../components/ScannedClientModal';
 import { PricingTable } from '../components/PricingTable';
 import { getStudents } from '../services/userService';
 import { getClasses, deleteClass } from '../services/classService';
@@ -133,6 +135,7 @@ export const AdminDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showClassStudents, setShowClassStudents] = useState<string | null>(null);
+  const [scannedClient, setScannedClient] = useState<User | null>(null);
   
   // Inline Tutorials State
   const [tabTutorials, setTabTutorials] = useState({
@@ -462,7 +465,7 @@ export const AdminDashboard: React.FC = () => {
     // Find client by QR code hash
     const client = clients.find(c => c.qr_code_hash === decodedText);
     if (client) {
-      navigate(`/admin/client/${client.id}`);
+      setScannedClient(client);
     } else {
       setAlertModal({
         isOpen: true,
@@ -786,13 +789,23 @@ export const AdminDashboard: React.FC = () => {
                               </div>
                             </div>
                             
-                            <button
-                              onClick={(e) => handleWhatsApp(e, client)}
-                              className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-300 shadow-sm group-hover:shadow-md"
-                              title="Enviar WhatsApp"
-                            >
-                              <MessageCircle className="w-5 h-5" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <Link
+                                to={`/edit/${client.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-600 hover:bg-slate-100 transition-all duration-300 shadow-sm"
+                                title="Editar Aluno"
+                              >
+                                <Pencil className="w-5 h-5" />
+                              </Link>
+                              <button
+                                onClick={(e) => handleWhatsApp(e, client)}
+                                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-all duration-300 shadow-sm group-hover:shadow-md"
+                                title="Enviar WhatsApp"
+                              >
+                                <MessageCircle className="w-5 h-5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1160,6 +1173,13 @@ export const AdminDashboard: React.FC = () => {
             <QRScanner 
               onScan={handleQRScan} 
               onClose={() => setShowQRScanner(false)} 
+            />
+          )}
+
+          {scannedClient && (
+            <ScannedClientModal 
+              client={scannedClient} 
+              onClose={() => setScannedClient(null)} 
             />
           )}
 

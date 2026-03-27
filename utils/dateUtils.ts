@@ -20,6 +20,16 @@ export const calculateExpiryDate = (startDate: string, durationDays: number): st
 export const getUserStatus = (user: User): UserStatusData => {
   const now = new Date();
   
+  if (!user.enrolled_classes || user.enrolled_classes.length === 0) {
+    return {
+      status: UserStatus.INACTIVE,
+      daysRemaining: 0,
+      color: 'bg-slate-100 text-slate-700 border-slate-200',
+      label: 'Sem Plano',
+      timeString: '-'
+    };
+  }
+
   if (user.status === UserStatus.PENDING_PAYMENT) {
     return {
       status: UserStatus.PENDING_PAYMENT,

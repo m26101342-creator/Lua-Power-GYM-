@@ -117,29 +117,22 @@ export const AddClient: React.FC = () => {
     if (!validateForm()) return;
     setIsSaving(true);
 
-    const durationDays = parseInt(formData.duration);
-    const expiryDate = calculateExpiryDate(formData.startDate, durationDays);
-    const cleanAmount = formData.amount ? parseFloat(formData.amount.replace(/[^0-9.]/g, '')) : 0;
-
-    // Build enrolled classes array
-    const enrolledList = Array.from(selectedClasses.entries()).map(([id, price]) => {
-        const cls = availableClasses.find(c => c.id === id);
-        return {
-            classId: id,
-            name: cls?.name || 'Unknown',
-            price: price
-        };
-    });
+    const durationDays = parseInt(formData.duration) || 30;
+    const validStartDate = formData.startDate || new Date().toISOString().split('T')[0];
+    const expiryDate = calculateExpiryDate(validStartDate, durationDays);
+    const cleanAmount = formData.amount ? parseFloat(formData.amount.toString().replace(/[^0-9.]/g, '')) : 0;
 
     await saveUser({
       id: crypto.randomUUID(),
       name: formData.name,
-      email: `${formData.phone.replace(/\D/g, '')}@example.com`, // Temporary email for users created by admin
+      email: `${formData.phone.replace(/\D/g, '')}@example.com`,
       role: UserRole.STUDENT,
       status: UserStatus.ACTIVE,
       phone: formData.phone,
-      subscription_start_date: formData.startDate,
+      subscription_start_date: validStartDate,
       subscription_end_date: expiryDate,
+      avatar: formData.avatar,
+      notes: formData.notes,
       enrolled_classes: Array.from(selectedClasses.keys()),
       amount: cleanAmount,
       durationDays: durationDays,

@@ -14,7 +14,8 @@ export enum UserStatus {
   PENDING_PAYMENT = 'PENDING_PAYMENT',
   ACTIVE = 'ACTIVE',
   EXPIRED = 'EXPIRED',
-  WARNING = 'WARNING'
+  WARNING = 'WARNING',
+  INACTIVE = 'INACTIVE'
 }
 
 export interface User {

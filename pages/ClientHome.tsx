@@ -12,11 +12,17 @@ import { db, auth } from '../services/firebase';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { Modal } from '../components/Modal';
 
+import { SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
+import { saveSupportMessage } from '../services/supportService';
+
 const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({ client, changeTab }) => {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
   const [globalNotifications, setGlobalNotifications] = useState<any[]>([]);
+  const [supportMessage, setSupportMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
   const statusData = getUserStatus(client);
   
   useEffect(() => {
@@ -57,11 +63,39 @@ const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({
     setTimeout(() => setDownloadSuccess(false), 3000);
   };
 
+  const handleSendSupport = async () => {
+    if (!supportMessage.trim()) return;
+    setIsSending(true);
+    
+    const newMessage: SupportMessage = {
+      id: crypto.randomUUID(),
+      user_id: client.id,
+      type: SupportMessageType.GENERAL_SUPPORT,
+      content: supportMessage,
+      status: SupportMessageStatus.UNREAD,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await saveSupportMessage(newMessage);
+      setSendSuccess(true);
+      setSupportMessage('');
+      setTimeout(() => {
+        setSendSuccess(false);
+        setActiveModal(null);
+      }, 2000);
+    } catch (error) {
+      console.error("Error sending support message:", error);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const quickActions = [
     { icon: <QrCode className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />, label: "Carteirinha", action: () => setActiveModal('idCard') },
     { icon: <Download className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />, label: "Baixar Plano", action: handleDownloadPDF },
     { icon: <BookOpen className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />, label: "Regras", action: () => setActiveModal('rules') },
-    { icon: <MessageCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />, label: "Suporte", action: () => window.open('https://wa.me/244921156899', '_blank') },
+    { icon: <MessageCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />, label: "Suporte", action: () => setActiveModal('support') },
   ];
 
   return (
@@ -179,6 +213,55 @@ const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({
                <p className="text-sm text-slate-600 dark:text-slate-300">4. Limpe os equipamentos após o uso.</p>
                <p className="text-sm text-slate-600 dark:text-slate-300">5. Proibido a entrada sem check-in na recepção.</p>
              </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal === 'support' && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setActiveModal(null)} />
+          <div className="bg-white dark:bg-slate-800 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl relative z-10 animate-fade-in flex flex-col">
+             <div className="flex items-center justify-between mb-4">
+               <h3 className="text-xl font-bold text-slate-900 dark:text-white">Suporte</h3>
+               <button onClick={() => setActiveModal(null)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 hover:text-slate-700"><X className="w-5 h-5" /></button>
+             </div>
+             
+             {sendSuccess ? (
+               <div className="py-8 flex flex-col items-center text-center">
+                  <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Mensagem Enviada!</h4>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Nossa equipe responderá em breve.</p>
+               </div>
+             ) : (
+               <div className="space-y-4">
+                 <p className="text-sm text-slate-600 dark:text-slate-300">Como podemos ajudar você hoje?</p>
+                 <textarea 
+                   className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-100 dark:border-slate-600 rounded-2xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+                   rows={4}
+                   placeholder="Digite sua mensagem aqui..."
+                   value={supportMessage}
+                   onChange={(e) => setSupportMessage(e.target.value)}
+                 />
+                 <button 
+                   onClick={handleSendSupport}
+                   disabled={isSending || !supportMessage.trim()}
+                   className="w-full py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                 >
+                   {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enviar Mensagem'}
+                 </button>
+                 
+                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <button 
+                      onClick={() => window.open('https://wa.me/244921156899', '_blank')}
+                      className="w-full py-3 text-emerald-600 dark:text-emerald-400 font-bold text-sm flex items-center justify-center gap-2"
+                    >
+                      <MessageCircle className="w-4 h-4" /> Falar pelo WhatsApp
+                    </button>
+                 </div>
+               </div>
+             )}
           </div>
         </div>
       )}
@@ -407,6 +490,95 @@ const ProfileTab: React.FC<{ client: User }> = ({ client }) => {
     );
 };
 
+const SupportTab: React.FC<{ client: User }> = ({ client }) => {
+  const [supportMessage, setSupportMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  const handleSendSupport = async () => {
+    if (!supportMessage.trim()) return;
+    setIsSending(true);
+    
+    const newMessage: SupportMessage = {
+      id: crypto.randomUUID(),
+      user_id: client.id,
+      type: SupportMessageType.GENERAL_SUPPORT,
+      content: supportMessage,
+      status: SupportMessageStatus.UNREAD,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await saveSupportMessage(newMessage);
+      setSendSuccess(true);
+      setSupportMessage('');
+      setTimeout(() => setSendSuccess(false), 3000);
+    } catch (error) {
+      console.error("Error sending support message:", error);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in pb-32 h-full flex flex-col max-w-lg mx-auto">
+      <div className="px-6 pt-12 pb-6 bg-white dark:bg-slate-900 sticky top-0 z-10 transition-colors duration-300">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Suporte</h1>
+      </div>
+      <div className="p-6 pt-2 overflow-y-auto space-y-6">
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-800">
+          <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4">
+            <HelpCircle className="w-6 h-6" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Como podemos ajudar?</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Envie sua dúvida, sugestão ou reporte um problema diretamente para nossa equipe.</p>
+        </div>
+
+        {sendSuccess ? (
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-700 text-center animate-fade-in shadow-sm">
+            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
+              <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Mensagem Enviada!</h4>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Nossa equipe responderá em breve.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <textarea 
+              className="w-full p-5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-[2rem] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 resize-none shadow-sm transition-all"
+              rows={6}
+              placeholder="Digite sua mensagem detalhadamente aqui..."
+              value={supportMessage}
+              onChange={(e) => setSupportMessage(e.target.value)}
+            />
+            <button 
+              onClick={handleSendSupport}
+              disabled={isSending || !supportMessage.trim()}
+              className="w-full py-4 bg-emerald-600 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-lg"
+            >
+              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enviar Mensagem'}
+            </button>
+            
+            <div className="pt-4 flex flex-col items-center gap-4">
+               <div className="flex items-center gap-2 text-slate-400">
+                  <div className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Ou se preferir</span>
+                  <div className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
+               </div>
+               <button 
+                 onClick={() => window.open('https://wa.me/244921156899', '_blank')}
+                 className="w-full py-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-emerald-600 dark:text-emerald-400 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
+               >
+                 <MessageCircle className="w-5 h-5" /> Falar pelo WhatsApp
+               </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const ClientHome: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('inicio');
@@ -443,13 +615,14 @@ export const ClientHome: React.FC = () => {
           {activeTab === 'aulas' && <ClassesTab client={client} />}
           {activeTab === 'planos' && <div className="p-6 pt-12"><PricingTable /></div>}
           {activeTab === 'pagamentos' && <PaymentsTab client={client} />}
+          {activeTab === 'suporte' && <SupportTab client={client} />}
           {activeTab === 'perfil' && <ProfileTab client={client} />}
         </div>
         <div className="sticky bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-6 py-3 pb-6 md:pb-6 lg:rounded-b-[2.5rem] z-50 transition-colors duration-300 mt-auto">
           <div className="flex justify-between items-end max-w-md mx-auto h-12">
             <button onClick={() => setActiveTab('inicio')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'inicio' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Home className="w-6 h-6" fill={activeTab === 'inicio' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Inicio</span></button>
             <button onClick={() => setActiveTab('aulas')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'aulas' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Dumbbell className="w-6 h-6" fill={activeTab === 'aulas' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Aulas</span></button>
-            <button onClick={() => setActiveTab('planos')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'planos' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Tags className="w-6 h-6" fill={activeTab === 'planos' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Planos</span></button>
+            <button onClick={() => setActiveTab('suporte')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'suporte' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><MessageCircle className="w-6 h-6" fill={activeTab === 'suporte' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Suporte</span></button>
             <button onClick={() => setActiveTab('pagamentos')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'pagamentos' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><CreditCard className="w-6 h-6" fill={activeTab === 'pagamentos' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Financeiro</span></button>
             <button onClick={() => setActiveTab('perfil')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'perfil' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><UserIcon className="w-6 h-6" fill={activeTab === 'perfil' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Perfil</span></button>
           </div>

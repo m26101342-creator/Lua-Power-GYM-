@@ -170,19 +170,13 @@ export const EditClient: React.FC = () => {
     const durationDays = parseInt(formData.duration) || 30;
     const validStartDate = formData.startDate || new Date().toISOString().split('T')[0];
     const expiryDate = calculateExpiryDate(validStartDate, durationDays);
-    const cleanAmount = formData.amount ? parseFloat(formData.amount.replace(/[^0-9.]/g, '')) : 0;
-
-    const enrolledList = Array.from(selectedClasses.entries()).map(([id, price]) => {
-        const cls = availableClasses.find(c => c.id === id);
-        return {
-            classId: id,
-            name: cls?.name || 'Unknown',
-            price: price
-        };
-    });
+    const cleanAmount = formData.amount ? parseFloat(formData.amount.toString().replace(/[^0-9.]/g, '')) : 0;
 
     const existingUser = await getUserById(id);
-    if (!existingUser) return;
+    if (!existingUser) {
+      setIsSaving(false);
+      return;
+    }
 
     await saveUser({
       ...existingUser,
@@ -231,7 +225,7 @@ export const EditClient: React.FC = () => {
   }
 
   return (
-    <Layout title="Editar Cliente" showBack onBack={() => navigate(`/client/${id}`)}>
+    <Layout title="Editar Cliente" showBack onBack={() => navigate('/admin/dashboard')}>
       <form onSubmit={handleSubmit} className="space-y-8 mt-2" noValidate>
         
         {/* Avatar */}

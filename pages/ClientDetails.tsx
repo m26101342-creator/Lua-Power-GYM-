@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { getUserById, deleteUser, saveUser } from '../services/userService';
 import { generateClientPDF } from '../services/pdfService';
@@ -237,7 +237,7 @@ export const ClientDetails: React.FC = () => {
                  <Calendar className="w-4 h-4" />
                  <span className="text-xs font-bold uppercase tracking-wider">Vencimento</span>
               </div>
-              <p className="text-slate-800 font-semibold text-lg">{formatDate(client.expiryDate)}</p>
+              <p className="text-slate-800 font-semibold text-lg">{formatDate(client.subscription_end_date)}</p>
             </div>
 
             <div className="flex-1 bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-center gap-1">
@@ -303,9 +303,9 @@ export const ClientDetails: React.FC = () => {
           </button>
           
           <div className="grid grid-cols-2 gap-4">
-            <button onClick={() => navigate(`/edit/${client.id}`)} className="py-4 bg-white border border-slate-200 text-slate-600 font-semibold rounded-2xl hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
+            <Link to={`/edit/${client.id}`} className="py-4 bg-white border border-slate-200 text-slate-600 font-semibold rounded-2xl hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
                 <Pencil className="w-5 h-5" /> Editar
-            </button>
+            </Link>
              <button onClick={() => setShowDeleteModal(true)} className="py-4 bg-white border border-red-100 text-red-500/80 font-semibold rounded-2xl hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors flex items-center justify-center gap-2 active:opacity-70">
                 <Trash2 className="w-5 h-5" /> Excluir
               </button>
