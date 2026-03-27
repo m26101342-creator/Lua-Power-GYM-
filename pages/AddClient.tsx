@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+import { Modal } from '../components/Modal';
 import { saveUser } from '../services/userService';
 import { getClasses } from '../services/classService';
 import { calculateExpiryDate, formatDate } from '../utils/dateUtils';
@@ -27,6 +28,11 @@ export const AddClient: React.FC = () => {
   const [errors, setErrors] = useState<{name?: string, phone?: string}>({});
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string }>({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
 
   useEffect(() => {
     const fetchClasses = async () => {
@@ -51,7 +57,11 @@ export const AddClient: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('A imagem deve ter menos de 2MB');
+        setAlertModal({
+          isOpen: true,
+          title: 'Arquivo muito grande',
+          message: 'A imagem deve ter menos de 2MB.'
+        });
         return;
       }
 
@@ -131,8 +141,10 @@ export const AddClient: React.FC = () => {
       subscription_start_date: formData.startDate,
       subscription_end_date: expiryDate,
       enrolled_classes: Array.from(selectedClasses.keys()),
+      amount: cleanAmount,
+      durationDays: durationDays,
       qr_code_hash: crypto.randomUUID(),
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
 
@@ -226,7 +238,7 @@ export const AddClient: React.FC = () => {
 
           {/* Class Selection Section */}
           <div className="group">
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Modalidades</label>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Selecionar Modalidade (Aula)</label>
             <div className="space-y-3">
                {availableClasses.map(cls => {
                  const isSelected = selectedClasses.has(cls.id);
@@ -355,6 +367,20 @@ export const AddClient: React.FC = () => {
           {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Salvar Cliente'}
         </button>
       </form>
+
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+      >
+        <p className="text-slate-600 mb-6">{alertModal.message}</p>
+        <button
+          onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+          className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl active:scale-[0.98] transition-all"
+        >
+          Entendi
+        </button>
+      </Modal>
     </Layout>
   );
 };

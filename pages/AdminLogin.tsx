@@ -6,7 +6,7 @@ import { auth } from '../services/firebase';
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export const AdminLogin: React.FC = () => {
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | boolean>(false);
   const [validating, setValidating] = useState(false);
   const navigate = useNavigate();
 
@@ -23,9 +23,13 @@ export const AdminLogin: React.FC = () => {
         sessionStorage.setItem('isAdmin', 'true');
         navigate('/admin/dashboard');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Auth error", err);
-      setError(true);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('O login com Google não está ativado no Console do Firebase.');
+      } else {
+        setError('Erro ao fazer login. Tente novamente.');
+      }
     } finally {
       setValidating(false);
     }
@@ -45,7 +49,7 @@ export const AdminLogin: React.FC = () => {
           <button type="submit" disabled={validating} className="w-full py-4 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white font-bold rounded-2xl shadow-xl shadow-slate-900/20 transition-all duration-300 flex items-center justify-center gap-3 text-lg">
             {validating ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Entrar com Google <ArrowRight className="w-5 h-5" /></>}
           </button>
-          {error && <p className="mt-2 ml-1 text-sm text-rose-500 font-medium animate-fade-in text-center">Erro ao fazer login. Tente novamente.</p>}
+          {error && <p className="mt-2 ml-1 text-sm text-rose-500 font-medium animate-fade-in text-center">{typeof error === 'string' ? error : 'Erro ao fazer login. Tente novamente.'}</p>}
         </form>
 
         <button onClick={() => navigate('/')} className="mt-8 text-sm font-semibold text-slate-400 hover:text-slate-600 transition-colors text-center">

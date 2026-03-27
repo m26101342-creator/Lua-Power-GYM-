@@ -1,19 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
-import { Dumbbell, CheckCircle2, Calendar, FileText, User as UserIcon, MessageCircle, Bell, Home, CreditCard, Lock, LogOut, ChevronRight, Clock, Shield, Wallet, AlertTriangle, XCircle, X, MapPin, Settings, Copy, Info, Phone, Building2, Swords, QrCode, Download, BookOpen, Droplets, CalendarCheck, Loader2, HelpCircle, Moon, Sun, ShieldCheck } from 'lucide-react';
+import { Dumbbell, CheckCircle2, Calendar, FileText, User as UserIcon, MessageCircle, Bell, Home, CreditCard, Lock, LogOut, ChevronRight, Clock, Shield, Wallet, AlertTriangle, XCircle, X, MapPin, Settings, Copy, Info, Phone, Building2, Swords, QrCode, Download, BookOpen, Droplets, CalendarCheck, Loader2, HelpCircle, Moon, Sun, ShieldCheck, Tags } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getUserById } from '../services/userService';
 import { getClasses } from '../services/classService';
 import { generateClientPDF } from '../services/pdfService';
 import { getUserStatus, formatDate } from '../utils/dateUtils';
 import { User, UserStatus, GymClass } from '../types';
+import { PricingTable } from '../components/PricingTable';
+import { db, auth } from '../services/firebase';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { Modal } from '../components/Modal';
 
 const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({ client, changeTab }) => {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadSuccess, setDownloadSuccess] = useState(false);
+  const [globalNotifications, setGlobalNotifications] = useState<any[]>([]);
   const statusData = getUserStatus(client);
   
+  useEffect(() => {
+    const q = query(
+      collection(db, 'notifications'),
+      where('is_global', '==', true),
+      orderBy('created_at', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setGlobalNotifications(msgs);
+    }, (error) => {
+      console.error("Error fetching notifications:", error);
+    });
+    
+    return () => unsubscribe();
+  }, []);
+
   let statusConfig = { icon: <CheckCircle2 className="w-4 h-4" />, text: 'Em dia', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-900/30', border: 'border-emerald-200 dark:border-emerald-800' };
   if (statusData.status === UserStatus.PENDING_PAYMENT) {
     statusConfig = { icon: <AlertTriangle className="w-4 h-4" />, text: 'Pagamento Pendente', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30', border: 'border-blue-200 dark:border-blue-800' };
@@ -71,6 +93,23 @@ const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({
           <button onClick={() => changeTab('pagamentos')} className={`w-full font-bold py-4 rounded-xl shadow-lg transition-all active:scale-[0.98] ${statusData.status === UserStatus.EXPIRED ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-rose-500/30' : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'}`}>{statusData.status === UserStatus.EXPIRED ? 'Renovar Plano' : 'Detalhes do Plano'}</button>
         </div>
       </div>
+
+      {globalNotifications.length > 0 && (
+        <div className="px-6 mb-8">
+            <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 ml-1">Comunicados</h3>
+            <div className="space-y-3">
+                {globalNotifications.map(notif => (
+                    <div key={notif.id} className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 p-4 rounded-2xl flex gap-3">
+                        <Bell className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-sm font-bold text-amber-900 dark:text-amber-200 leading-tight">{notif.message}</p>
+                            <p className="text-[10px] text-amber-600/60 dark:text-amber-400/60 mt-1 font-medium">{formatDate(notif.created_at)}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+      )}
 
       <div className="px-6 mb-10">
         <div className="flex justify-between items-start gap-2">
@@ -223,7 +262,22 @@ const ClassesTab: React.FC<{ client: User }> = ({ client }) => {
 };
 
 const PaymentsTab: React.FC<{ client: User }> = ({ client }) => {
-    const formattedAmount = '0,00 Kz'; // TODO: Get amount from plan
+    const [totalAmount, setTotalAmount] = useState(0);
+    
+    useEffect(() => {
+        const fetchAmount = async () => {
+            if (!client.enrolled_classes || client.enrolled_classes.length === 0) return;
+            const classes = await getClasses();
+            const amount = client.enrolled_classes.reduce((acc, classId) => {
+                const cls = classes.find(c => c.id === classId);
+                return acc + (cls?.price || 0);
+            }, 0);
+            setTotalAmount(amount);
+        };
+        fetchAmount();
+    }, [client.enrolled_classes]);
+
+    const formattedAmount = new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(totalAmount);
   return (
     <div className="animate-fade-in pb-32 h-full flex flex-col max-w-lg mx-auto">
        <div className="px-6 pt-12 pb-6 bg-white dark:bg-slate-900 sticky top-0 z-10 transition-colors duration-300"><h1 className="text-2xl font-bold text-slate-900 dark:text-white">Financeiro</h1></div>
@@ -247,7 +301,20 @@ const ProfileTab: React.FC<{ client: User }> = ({ client }) => {
     const navigate = useNavigate();
     const [darkMode, setDarkMode] = useState(false);
     const [notifications, setNotifications] = useState(true);
-    const handleLogout = () => { if(window.confirm("Deseja realmente sair?")) { localStorage.removeItem('gym_client_id'); navigate('/client-login'); } };
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [showTermsModal, setShowTermsModal] = useState(false);
+
+    const handleLogout = async () => {
+        try {
+            await auth.signOut();
+            localStorage.removeItem('gym_client_id');
+            navigate('/client-login');
+        } catch (error) {
+            console.error("Logout error", error);
+            localStorage.removeItem('gym_client_id');
+            navigate('/client-login');
+        }
+    };
     const toggleTheme = () => { setDarkMode(!darkMode); document.documentElement.classList.toggle('dark'); };
 
     return (
@@ -275,14 +342,67 @@ const ProfileTab: React.FC<{ client: User }> = ({ client }) => {
                 <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">Sobre</h3>
                     <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden">
-                        <button onClick={() => alert("Termos de Uso:\n\n1. Respeito mútuo.\n2. Pagamento em dia.\n3. Uso de toalha obrigatório.")} className="w-full p-4 flex items-center justify-between border-b border-slate-50 dark:border-slate-700 active:bg-slate-50 dark:active:bg-slate-700 transition-colors"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400"><FileText className="w-4 h-4" /></div><span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Termos de Uso</span></div><ChevronRight className="w-4 h-4 text-slate-400" /></button>
+                        <button onClick={() => setShowTermsModal(true)} className="w-full p-4 flex items-center justify-between border-b border-slate-50 dark:border-slate-700 active:bg-slate-50 dark:active:bg-slate-700 transition-colors"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400"><FileText className="w-4 h-4" /></div><span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Termos de Uso</span></div><ChevronRight className="w-4 h-4 text-slate-400" /></button>
                         <button onClick={() => window.open('https://wa.me/244921156899', '_blank')} className="w-full p-4 flex items-center justify-between active:bg-slate-50 dark:active:bg-slate-700 transition-colors"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400"><HelpCircle className="w-4 h-4" /></div><span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Suporte / Ajuda</span></div><ChevronRight className="w-4 h-4 text-slate-400" /></button>
                     </div>
                 </div>
-                <button onClick={handleLogout} className="w-full py-4 text-rose-500 font-bold text-sm bg-rose-50 dark:bg-rose-900/20 rounded-2xl hover:bg-rose-100 dark:hover:bg-rose-900/30 transition-colors flex items-center justify-center gap-2 mt-4"><LogOut className="w-4 h-4" /> Sair da conta</button>
+                <button onClick={() => setShowLogoutModal(true)} className="w-full py-4 text-rose-500 font-bold text-sm bg-rose-50 dark:bg-rose-900/20 rounded-2xl hover:bg-rose-100 dark:hover:bg-rose-900/30 transition-colors flex items-center justify-center gap-2 mt-4"><LogOut className="w-4 h-4" /> Sair da conta</button>
                 <p className="text-center text-[10px] text-slate-400 font-medium">Versão 1.0.5 (Demo)</p>
             </div>
           </div>
+
+          <Modal
+            isOpen={showLogoutModal}
+            onClose={() => setShowLogoutModal(false)}
+            title="Sair da Conta"
+            type="danger"
+            actions={
+              <>
+                <button
+                  onClick={() => setShowLogoutModal(false)}
+                  className="px-4 py-2 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors shadow-md shadow-rose-500/20"
+                >
+                  Sair
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mb-4">
+                <LogOut className="w-8 h-8" />
+              </div>
+              <p className="text-slate-600 mb-2">
+                Deseja realmente sair da sua conta?
+              </p>
+            </div>
+          </Modal>
+
+          <Modal
+            isOpen={showTermsModal}
+            onClose={() => setShowTermsModal(false)}
+            title="Termos de Uso"
+            type="info"
+            actions={
+              <button
+                onClick={() => setShowTermsModal(false)}
+                className="px-4 py-2 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-colors shadow-md shadow-emerald-500/20"
+              >
+                Entendi
+              </button>
+            }
+          >
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">1. Respeito mútuo.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">2. Pagamento em dia.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300">3. Uso de toalha obrigatório.</p>
+            </div>
+          </Modal>
         </div>
     );
 };
@@ -321,6 +441,7 @@ export const ClientHome: React.FC = () => {
         <div className="flex-1 overflow-y-auto scroll-smooth">
           {activeTab === 'inicio' && <HomeTab client={client} changeTab={setActiveTab} />}
           {activeTab === 'aulas' && <ClassesTab client={client} />}
+          {activeTab === 'planos' && <div className="p-6 pt-12"><PricingTable /></div>}
           {activeTab === 'pagamentos' && <PaymentsTab client={client} />}
           {activeTab === 'perfil' && <ProfileTab client={client} />}
         </div>
@@ -328,6 +449,7 @@ export const ClientHome: React.FC = () => {
           <div className="flex justify-between items-end max-w-md mx-auto h-12">
             <button onClick={() => setActiveTab('inicio')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'inicio' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Home className="w-6 h-6" fill={activeTab === 'inicio' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Inicio</span></button>
             <button onClick={() => setActiveTab('aulas')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'aulas' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Dumbbell className="w-6 h-6" fill={activeTab === 'aulas' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Aulas</span></button>
+            <button onClick={() => setActiveTab('planos')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'planos' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><Tags className="w-6 h-6" fill={activeTab === 'planos' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Planos</span></button>
             <button onClick={() => setActiveTab('pagamentos')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'pagamentos' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><CreditCard className="w-6 h-6" fill={activeTab === 'pagamentos' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Financeiro</span></button>
             <button onClick={() => setActiveTab('perfil')} className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'perfil' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'}`}><UserIcon className="w-6 h-6" fill={activeTab === 'perfil' ? "currentColor" : "none"} /><span className="text-[10px] font-bold">Perfil</span></button>
           </div>

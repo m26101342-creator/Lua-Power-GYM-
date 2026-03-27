@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { ClientHome } from './pages/ClientHome';
@@ -9,12 +9,15 @@ import { EditClient } from './pages/EditClient';
 import { ClientDetails } from './pages/ClientDetails';
 import { AdminClasses } from './pages/AdminClasses';
 import { ManageClass } from './pages/ManageClass';
+import { auth } from './services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { Loader2 } from 'lucide-react';
 
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAdmin = sessionStorage.getItem('isAdmin');
   const location = useLocation();
 
-  if (!isAdmin) {
+  if (!isAdmin || !auth.currentUser) {
     return <Navigate to="/admin-login" state={{ from: location }} replace />;
   }
 
@@ -25,7 +28,7 @@ const ClientRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const clientId = localStorage.getItem('gym_client_id');
   const location = useLocation();
 
-  if (!clientId) {
+  if (!clientId || !auth.currentUser) {
     return <Navigate to="/client-login" state={{ from: location }} replace />;
   }
 
@@ -33,6 +36,23 @@ const ClientRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const App: React.FC = () => {
+  const [authInitialized, setAuthInitialized] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      setAuthInitialized(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (!authInitialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-100">
+        <Loader2 className="w-12 h-12 text-emerald-500 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <HashRouter>
       <Routes>

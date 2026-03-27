@@ -13,7 +13,8 @@ export enum UserRole {
 export enum UserStatus {
   PENDING_PAYMENT = 'PENDING_PAYMENT',
   ACTIVE = 'ACTIVE',
-  EXPIRED = 'EXPIRED'
+  EXPIRED = 'EXPIRED',
+  WARNING = 'WARNING'
 }
 
 export interface User {
@@ -29,6 +30,8 @@ export interface User {
   qr_code_hash: string;
   avatar?: string;
   notes?: string;
+  amount?: number;
+  durationDays?: number;
   createdAt?: string;
   updated_at?: string;
 }

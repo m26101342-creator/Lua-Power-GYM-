@@ -4,17 +4,34 @@ import { Layout } from '../components/Layout';
 import { ArrowRight, AlertCircle, Mail, Lock, User as UserIcon, Loader2 } from 'lucide-react';
 import { auth, db } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { UserRole, UserStatus, User } from '../types';
+import { doc, setDoc, getDoc, getDocs, collection } from 'firebase/firestore';
+import { UserRole, UserStatus, User, GymClass } from '../types';
+import { Check } from 'lucide-react';
 
 export const ClientLogin: React.FC = () => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [availableClasses, setAvailableClasses] = useState<GymClass[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  React.useEffect(() => {
+    const fetchClasses = async () => {
+      const classes = await getDocs(collection(db, 'classes'));
+      setAvailableClasses(classes.docs.map(doc => ({ id: doc.id, ...doc.data() } as GymClass)));
+    };
+    fetchClasses();
+  }, []);
+
+  const toggleClass = (classId: string) => {
+    setSelectedClasses(prev => 
+      prev.includes(classId) ? prev.filter(id => id !== classId) : [...prev, classId]
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +56,7 @@ export const ClientLogin: React.FC = () => {
                 email,
                 role: UserRole.STUDENT,
                 status: UserStatus.PENDING_PAYMENT,
+                enrolled_classes: selectedClasses,
                 qr_code_hash: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
                 createdAt: new Date().toISOString()
             };
@@ -75,6 +93,8 @@ export const ClientLogin: React.FC = () => {
             setError('Email ou senha incorretos.');
         } else if (err.code === 'auth/weak-password') {
             setError('A senha deve ter pelo menos 6 caracteres.');
+        } else if (err.code === 'auth/operation-not-allowed') {
+            setError('O login com Email/Senha não está ativado no Console do Firebase.');
         } else {
             setError('Erro de conexão. Tente novamente.');
         }
@@ -127,6 +147,25 @@ export const ClientLogin: React.FC = () => {
                 <input type="password" className={`w-full pl-11 pr-4 py-4 bg-slate-50 rounded-2xl shadow-inner placeholder:text-slate-300 transition-all font-medium border-2 text-lg ${error ? 'border-rose-300 text-rose-900 focus:ring-rose-200 focus:border-rose-400 focus:ring-4 bg-rose-50' : 'border-transparent text-slate-800 focus:bg-white focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500/50'} focus:outline-none`} placeholder="••••••" value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }} />
               </div>
             </div>
+
+            {isRegistering && (
+                <div className="group">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Escolha suas Aulas</label>
+                  <div className="grid grid-cols-1 gap-2">
+                    {availableClasses.map(cls => (
+                      <button
+                        key={cls.id}
+                        type="button"
+                        onClick={() => toggleClass(cls.id)}
+                        className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all ${selectedClasses.includes(cls.id) ? 'bg-emerald-50 border-emerald-500 text-emerald-900' : 'bg-slate-50 border-transparent text-slate-600'}`}
+                      >
+                        <span className="font-bold">{cls.name}</span>
+                        {selectedClasses.includes(cls.id) && <Check className="w-5 h-5 text-emerald-500" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+            )}
 
             {error && (
               <div className="flex items-center gap-2 mt-3 text-rose-500 animate-fade-in bg-rose-50 p-3 rounded-xl">

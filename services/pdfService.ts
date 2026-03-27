@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { User, UserStatus } from '../types';
+import { User, UserStatus, GymClass } from '../types';
 import { getUserStatus, formatDate } from '../utils/dateUtils';
 
 const LOGO_URL = "https://i.postimg.cc/K86FS7PH/1000196294_fotor_enhance_20260107104529.jpg";
@@ -38,7 +38,7 @@ const loadRoundedImage = (url: string): Promise<string> => {
   });
 };
 
-export const generateClientPDF = async (client: User) => {
+export const generateClientPDF = async (client: User, enrolledClasses: GymClass[] = []) => {
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -46,6 +46,9 @@ export const generateClientPDF = async (client: User) => {
   });
 
   const statusData = getUserStatus(client);
+  const startDate = client.subscription_start_date || '';
+  const expiryDate = client.subscription_end_date || '';
+  const phone = client.phone || '';
 
   // Design Constants
   const colors = {
@@ -172,7 +175,7 @@ export const generateClientPDF = async (client: User) => {
   doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
   doc.setFontSize(12);
   doc.setFont("helvetica", "normal");
-  doc.text(client.phone, textLeft, cursorY + 22);
+  doc.text(phone, textLeft, cursorY + 22);
 
   // Status Pill (Top Right relative to profile)
   let statusColor = [100, 116, 139]; 
@@ -225,9 +228,9 @@ export const generateClientPDF = async (client: User) => {
     doc.text(val, x, y + 6);
   };
 
-  drawField("Data Início", formatDate(client.startDate), col1, rowStart);
-  drawField("Duração", `${client.durationDays} Dias`, col2, rowStart);
-  drawField("Vencimento", formatDate(client.expiryDate), col3, rowStart, true);
+  drawField("Data Início", formatDate(startDate), col1, rowStart);
+  drawField("Duração", `${client.durationDays || 0} Dias`, col2, rowStart);
+  drawField("Vencimento", formatDate(expiryDate), col3, rowStart, true);
   
   // Amount Field
   const formattedAmount = client.amount 
@@ -239,10 +242,10 @@ export const generateClientPDF = async (client: User) => {
   cursorY += planHeight + 10;
 
   // --- Enrolled Classes Section ---
-  if (client.enrolledClasses && client.enrolledClasses.length > 0) {
+  if (enrolledClasses && enrolledClasses.length > 0) {
     const classRowHeight = 8;
     const headerHeight = 20;
-    const classesBoxHeight = headerHeight + (client.enrolledClasses.length * classRowHeight) + 5;
+    const classesBoxHeight = headerHeight + (enrolledClasses.length * classRowHeight) + 5;
     
     // Check if we need a new page (unlikely for classes but safe to check)
     if (cursorY + classesBoxHeight > 270) {
@@ -264,7 +267,7 @@ export const generateClientPDF = async (client: User) => {
     doc.line(margin + 5, cursorY + 16, pageWidth - margin - 5, cursorY + 16);
 
     let classY = cursorY + 24;
-    client.enrolledClasses.forEach((cls) => {
+    enrolledClasses.forEach((cls) => {
         doc.setFontSize(10);
         doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
         doc.setFont("helvetica", "bold");
@@ -387,10 +390,10 @@ export const generateClientListPDF = async (clients: User[]) => {
     }
 
     const statusData = getUserStatus(client);
-    const amount = 0; // TODO: Get amount from plan
+    const amount = client.amount || 0;
     
     // Sum revenue only if active
-    if (statusData.status === UserStatus.ACTIVE) {
+    if (statusData.status === UserStatus.ACTIVE || statusData.status === UserStatus.WARNING) {
         totalRevenue += amount;
     }
 

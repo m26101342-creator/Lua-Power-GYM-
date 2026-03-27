@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { saveClass, getClassById } from '../services/classService';
 import { CustomTimePicker } from '../components/CustomTimePicker';
+import { Modal } from '../components/Modal';
 import { GymClass } from '../types';
 import { Dumbbell, User, Clock, Users, Calendar, Check, Banknote, Loader2 } from 'lucide-react';
 
@@ -24,6 +25,11 @@ export const ManageClass: React.FC = () => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string }>({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
 
   useEffect(() => {
     const loadClass = async () => {
@@ -44,7 +50,11 @@ export const ManageClass: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || formData.weekDays.length === 0) {
-      alert('Preencha o nome e selecione pelo menos um dia.');
+      setAlertModal({
+        isOpen: true,
+        title: 'Atenção',
+        message: 'Preencha o nome e selecione pelo menos um dia.'
+      });
       return;
     }
     setIsSaving(true);
@@ -227,6 +237,20 @@ export const ManageClass: React.FC = () => {
         </button>
 
       </form>
+
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+      >
+        <p className="text-slate-600 mb-6">{alertModal.message}</p>
+        <button
+          onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+          className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl active:scale-[0.98] transition-all"
+        >
+          Entendi
+        </button>
+      </Modal>
     </Layout>
   );
 };

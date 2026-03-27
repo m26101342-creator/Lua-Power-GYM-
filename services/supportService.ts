@@ -1,5 +1,5 @@
 import { collection, doc, setDoc, getDocs, query, where, deleteDoc, updateDoc, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from './firebase';
 import { SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
 
 const COLLECTION_NAME = 'support_messages';

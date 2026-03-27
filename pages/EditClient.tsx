@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { CustomDatePicker } from '../components/CustomDatePicker';
+import { Modal } from '../components/Modal';
 import { saveUser, getUserById } from '../services/userService';
 import { getClasses } from '../services/classService';
 import { calculateExpiryDate, formatDate } from '../utils/dateUtils';
@@ -29,6 +30,11 @@ export const EditClient: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string }>({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
 
   useEffect(() => {
     const loadData = async () => {
@@ -48,12 +54,23 @@ export const EditClient: React.FC = () => {
               try { safeStartDate = client.subscription_start_date.split('T')[0]; } catch(e) { safeStartDate = new Date().toISOString().split('T')[0]; }
             } else { safeStartDate = new Date().toISOString().split('T')[0]; }
     
+            const diffTime = Math.abs(new Date(client.subscription_end_date || '').getTime() - new Date(client.subscription_start_date || '').getTime());
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 30;
+
+            let totalAmount = 0;
+            if (client.enrolled_classes) {
+                client.enrolled_classes.forEach(classId => {
+                    const cls = classes.find(c => c.id === classId);
+                    if (cls) totalAmount += cls.price;
+                });
+            }
+
             setFormData({
               name: client.name,
               phone: formattedPhone,
               startDate: safeStartDate,
-              duration: '30', // TODO: Get duration from plan
-              amount: '0', // TODO: Get amount from plan
+              duration: diffDays.toString(),
+              amount: (client.amount || totalAmount).toString(),
               avatar: client.avatar || '',
               notes: client.notes || '',
             });
@@ -111,7 +128,11 @@ export const EditClient: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert('A imagem deve ter menos de 2MB');
+        setAlertModal({
+          isOpen: true,
+          title: 'Arquivo muito grande',
+          message: 'A imagem deve ter menos de 2MB.'
+        });
         return;
       }
       const reader = new FileReader();
@@ -172,6 +193,8 @@ export const EditClient: React.FC = () => {
       avatar: formData.avatar,
       notes: formData.notes,
       enrolled_classes: Array.from(selectedClasses.keys()),
+      amount: cleanAmount,
+      durationDays: durationDays,
       updated_at: new Date().toISOString()
     });
 
@@ -273,7 +296,7 @@ export const EditClient: React.FC = () => {
 
           {/* Class Selection */}
           <div className="group">
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Modalidades</label>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Selecionar Modalidade (Aula)</label>
             <div className="space-y-3">
                {availableClasses.map(cls => {
                  const isSelected = selectedClasses.has(cls.id);
@@ -397,6 +420,20 @@ export const EditClient: React.FC = () => {
           {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Salvar Alterações'}
         </button>
       </form>
+
+      <Modal
+        isOpen={alertModal.isOpen}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+        title={alertModal.title}
+      >
+        <p className="text-slate-600 mb-6">{alertModal.message}</p>
+        <button
+          onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+          className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl active:scale-[0.98] transition-all"
+        >
+          Entendi
+        </button>
+      </Modal>
     </Layout>
   );
 };

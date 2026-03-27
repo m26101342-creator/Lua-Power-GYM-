@@ -3,9 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { getUserById, deleteUser, saveUser } from '../services/userService';
 import { generateClientPDF } from '../services/pdfService';
-import { User, UserStatus } from '../types';
+import { User, UserStatus, GymClass } from '../types';
 import { getUserStatus, formatDate, calculateExpiryDate } from '../utils/dateUtils';
-import { Trash2, RefreshCw, MessageCircle, Calendar, Phone, CheckCircle2, AlertTriangle, XCircle, FileText, Download, Pencil, Banknote, Dumbbell, Loader2 } from 'lucide-react';
+import { getClasses } from '../services/classService';
+import { Trash2, RefreshCw, MessageCircle, Calendar, Phone, CheckCircle2, AlertTriangle, XCircle, FileText, Download, Pencil, Banknote, Dumbbell, Loader2, Info } from 'lucide-react';
 
 export const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -16,6 +17,8 @@ export const ClientDetails: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [enrolledClassesData, setEnrolledClassesData] = useState<GymClass[]>([]);
+  const [totalAmount, setTotalAmount] = useState(0);
 
   const [_, setTick] = useState(0);
 
@@ -25,6 +28,14 @@ export const ClientDetails: React.FC = () => {
           const found = await getUserById(id);
           if (found) {
               setClient(found);
+              
+              // Fetch classes data
+              const allClasses = await getClasses();
+              const enrolled = allClasses.filter(c => found.enrolled_classes?.includes(c.id));
+              setEnrolledClassesData(enrolled);
+              
+              const amount = enrolled.reduce((acc, c) => acc + c.price, 0);
+              setTotalAmount(amount);
           } else {
               navigate('/');
           }
@@ -59,10 +70,10 @@ export const ClientDetails: React.FC = () => {
   if (!client) return null;
 
   const statusData = getUserStatus(client);
-  const duration = 30; // TODO: Get duration from plan
+  const duration = client.durationDays || 30;
   const isExpired = statusData.status === UserStatus.EXPIRED;
   
-  const formattedAmount = '0,00 Kz'; // TODO: Get amount from plan
+  const formattedAmount = new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(totalAmount);
 
   const getStatusConfig = () => {
     switch (statusData.status) {
@@ -159,7 +170,7 @@ export const ClientDetails: React.FC = () => {
 
   const confirmDownloadPDF = async () => {
     setToastMessage("Gerando PDF...");
-    await generateClientPDF(client);
+    await generateClientPDF(client, enrolledClassesData);
     setShowDownloadModal(false);
     setToastMessage("PDF baixado com sucesso!");
   };
@@ -240,18 +251,18 @@ export const ClientDetails: React.FC = () => {
         </div>
         
         {/* Enrolled Classes List */}
-        {client.enrolledClasses && client.enrolledClasses.length > 0 && (
+        {enrolledClassesData.length > 0 && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
              <div className="flex items-center gap-2 mb-4">
                 <Dumbbell className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Modalidades Inscritas</h3>
              </div>
              <div className="space-y-3">
-               {client.enrolledClasses.map((cls, idx) => (
+               {enrolledClassesData.map((cls, idx) => (
                  <div key={idx} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
                     <span className="font-semibold text-slate-800">{cls.name}</span>
                     <span className="text-sm font-bold text-emerald-600">
-                       {new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA' }).format(cls.price)}
+                       {new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(cls.price)}
                     </span>
                  </div>
                ))}

@@ -32,16 +32,23 @@ import {
   Home,
   Menu,
   PieChart,
-  QrCode
+  QrCode,
+  Tags
 } from 'lucide-react';
 import { Layout } from '../components/Layout';
 import { QRScanner } from '../components/QRScanner';
+import { PricingTable } from '../components/PricingTable';
 import { getStudents } from '../services/userService';
 import { getClasses, deleteClass } from '../services/classService';
 import { checkAndScheduleNotifications } from '../services/notificationService';
+import { getAllMessages, updateMessageStatus, deleteMessage } from '../services/supportService';
 import { generateClientListPDF } from '../services/pdfService';
-import { User, UserStatus, GymClass } from '../types';
+import { User, UserStatus, GymClass, SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
 import { getUserStatus, formatDate } from '../utils/dateUtils';
+import { db, auth } from '../services/firebase';
+import { collection, addDoc } from 'firebase/firestore';
+import { Bell } from 'lucide-react';
+import { Modal } from '../components/Modal';
 
 // --- COMPONENTS ---
 
@@ -119,12 +126,13 @@ export const AdminDashboard: React.FC = () => {
   const [clients, setClients] = useState<User[]>([]);
   const [gymClasses, setGymClasses] = useState<GymClass[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'classes' | 'finance' | 'tools'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'classes' | 'finance' | 'planos' | 'support' | 'tools'>('dashboard');
   const [tick, setTick] = useState(0); 
   const [showTutorial, setShowTutorial] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showClassStudents, setShowClassStudents] = useState<string | null>(null);
   
   // Inline Tutorials State
   const [tabTutorials, setTabTutorials] = useState({
@@ -138,6 +146,21 @@ export const AdminDashboard: React.FC = () => {
   const [classSearchTerm, setClassSearchTerm] = useState('');
   const [focusedClassId, setFocusedClassId] = useState<string | null>(null);
   const classCardsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Support Tab State
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  // Modal States
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [classToDelete, setClassToDelete] = useState<string | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
+  const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string; type: 'info' | 'danger' | 'success' | 'warning' }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
 
   // Stats State
   const [stats, setStats] = useState({
@@ -187,6 +210,24 @@ export const AdminDashboard: React.FC = () => {
     fetchClasses();
   }, [activeTab]);
 
+  // Load Support Messages when switching to support tab
+  useEffect(() => {
+    const fetchMessages = async () => {
+      if (activeTab === 'support') {
+        setLoadingMessages(true);
+        try {
+          const messages = await getAllMessages();
+          setSupportMessages(messages);
+        } catch (error) {
+          console.error("Failed to load messages:", error);
+        } finally {
+          setLoadingMessages(false);
+        }
+      }
+    };
+    fetchMessages();
+  }, [activeTab]);
+
   // Intersection Observer for Classes Scroll Highlight
   useEffect(() => {
     if (activeTab !== 'classes') return;
@@ -219,12 +260,22 @@ export const AdminDashboard: React.FC = () => {
   const loadDashboardData = async () => {
       setRefreshing(true);
       const allClients = await getStudents();
+      const allGymClasses = await getClasses();
+      setGymClasses(allGymClasses);
       
       let activeCount = 0;
       let warningCount = 0;
       let expiredCount = 0;
       let totalRevenue = 0;
       const classMap = new Map<string, {count: number, revenue: number}>();
+      const classEnrollmentMap = new Map<string, number>();
+
+      // Create a price map for quick lookup
+      const classPriceMap = new Map<string, {name: string, price: number}>();
+      allGymClasses.forEach(cls => {
+          classPriceMap.set(cls.id, { name: cls.name, price: cls.price || 0 });
+          classEnrollmentMap.set(cls.id, 0);
+      });
 
       allClients.forEach(client => {
         const statusData = getUserStatus(client);
@@ -232,15 +283,45 @@ export const AdminDashboard: React.FC = () => {
             if (statusData.status === UserStatus.ACTIVE) activeCount++;
             if (statusData.status === UserStatus.WARNING) warningCount++;
             
-            totalRevenue += 0; // TODO: Get amount from plan
-            
-            // Analyze Classes for Revenue
-            if (client.enrolled_classes) {
-                // TODO: calculate revenue based on enrolled classes
+            // Use saved amount if available, otherwise fallback to sum of current class prices
+            if (client.amount !== undefined && client.amount > 0) {
+                totalRevenue += client.amount;
+            } else if (client.enrolled_classes && client.enrolled_classes.length > 0) {
+                client.enrolled_classes.forEach(classId => {
+                    const classInfo = classPriceMap.get(classId);
+                    if (classInfo) {
+                        totalRevenue += classInfo.price;
+                    }
+                });
+            }
+
+            // Update class performance stats
+            if (client.enrolled_classes && client.enrolled_classes.length > 0) {
+                client.enrolled_classes.forEach(classId => {
+                    const classInfo = classPriceMap.get(classId);
+                    if (classInfo) {
+                        const current = classMap.get(classInfo.name) || { count: 0, revenue: 0 };
+                        classMap.set(classInfo.name, {
+                            count: current.count + 1,
+                            revenue: current.revenue + classInfo.price
+                        });
+                        
+                        // Update enrollment count for the specific class ID
+                        const currentEnrollment = classEnrollmentMap.get(classId) || 0;
+                        classEnrollmentMap.set(classId, currentEnrollment + 1);
+                    }
+                });
             }
         }
         if (statusData.status === UserStatus.EXPIRED) expiredCount++;
       });
+
+      // Update gym classes with enrollment counts
+      const classesWithCounts = allGymClasses.map(cls => ({
+          ...cls,
+          enrolledCount: classEnrollmentMap.get(cls.id) || 0
+      }));
+      setGymClasses(classesWithCounts);
 
       // Sort Classes for Stats
       const topClasses = Array.from(classMap.entries())
@@ -270,7 +351,7 @@ export const AdminDashboard: React.FC = () => {
       setClients(sorted);
       setLoading(false);
       setRefreshing(false);
-      // checkAndScheduleNotifications(sorted); // TODO: Update notification service
+      checkAndScheduleNotifications(sorted);
   };
 
   const handleWhatsApp = (e: React.MouseEvent, client: User) => {
@@ -293,11 +374,16 @@ export const AdminDashboard: React.FC = () => {
 
   const handleDeleteClass = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('Tem certeza que deseja excluir esta aula?')) {
-      await deleteClass(id);
+    setClassToDelete(id);
+  };
+
+  const confirmDeleteClass = async () => {
+    if (classToDelete) {
+      await deleteClass(classToDelete);
       const data = await getClasses();
       const sorted = data.sort((a, b) => a.startTime.localeCompare(b.startTime));
       setGymClasses(sorted);
+      setClassToDelete(null);
     }
   };
 
@@ -325,9 +411,49 @@ export const AdminDashboard: React.FC = () => {
     try {
       // Simple check to see if we can fetch clients
       await getStudents();
-      alert("SISTEMA ONLINE\n\nConexão com o banco de dados (Firebase) estabelecida com sucesso. Todos os sistemas estão operacionais.");
+      setAlertModal({
+        isOpen: true,
+        title: "SISTEMA ONLINE",
+        message: "Conexão com o banco de dados (Firebase) estabelecida com sucesso. Todos os sistemas estão operacionais.",
+        type: "success"
+      });
     } catch (error) {
-      alert("ERRO DE CONEXÃO\n\nNão foi possível conectar ao banco de dados. Verifique sua conexão com a internet ou as configurações do Firebase.");
+      setAlertModal({
+        isOpen: true,
+        title: "ERRO DE CONEXÃO",
+        message: "Não foi possível conectar ao banco de dados. Verifique sua conexão com a internet ou as configurações do Firebase.",
+        type: "danger"
+      });
+    }
+  };
+
+  const handleBroadcastMessage = async (message: string) => {
+    try {
+        setRefreshing(true);
+        const notificationData = {
+            title: 'Comunicado do Ginásio',
+            message,
+            created_at: new Date().toISOString(),
+            is_global: true
+        };
+        
+        await addDoc(collection(db, 'notifications'), notificationData);
+        setAlertModal({
+            isOpen: true,
+            title: "Sucesso",
+            message: "Mensagem enviada com sucesso para todos os alunos!",
+            type: "success"
+        });
+    } catch (error) {
+        console.error('Error sending broadcast:', error);
+        setAlertModal({
+            isOpen: true,
+            title: "Erro",
+            message: "Erro ao enviar mensagem.",
+            type: "danger"
+        });
+    } finally {
+        setRefreshing(false);
     }
   };
 
@@ -338,13 +464,29 @@ export const AdminDashboard: React.FC = () => {
     if (client) {
       navigate(`/admin/client/${client.id}`);
     } else {
-      alert("QR Code inválido ou aluno não encontrado.");
+      setAlertModal({
+        isOpen: true,
+        title: "Atenção",
+        message: "QR Code inválido ou aluno não encontrado.",
+        type: "warning"
+      });
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('isAdmin');
-    navigate('/');
+  const handleLogoutClick = () => {
+      setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+      try {
+          await auth.signOut();
+          sessionStorage.removeItem('isAdmin');
+          navigate('/admin-login');
+      } catch (error) {
+          console.error("Logout error", error);
+          sessionStorage.removeItem('isAdmin');
+          navigate('/admin-login');
+      }
   };
 
   const closeTabTutorial = (tab: keyof typeof tabTutorials) => {
@@ -387,7 +529,7 @@ export const AdminDashboard: React.FC = () => {
   };
 
   const logoutButton = (
-    <button onClick={handleLogout} className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors lg:hidden">
+    <button onClick={handleLogoutClick} className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors lg:hidden">
       <LogOut className="w-5 h-5" />
     </button>
   );
@@ -397,7 +539,9 @@ export const AdminDashboard: React.FC = () => {
           case 'dashboard': return 'Visão Geral';
           case 'clients': return 'Gestão de Alunos';
           case 'finance': return 'Financeiro';
-          case 'classes': return 'Aulas';
+          case 'classes': return 'Gestão de Aulas';
+          case 'planos': return 'Planos';
+          case 'support': return 'Suporte';
           case 'tools': return 'Ferramentas';
           default: return 'Gestão';
       }
@@ -433,8 +577,10 @@ export const AdminDashboard: React.FC = () => {
             {[
                 { id: 'dashboard', icon: LayoutDashboard, label: 'Visão Geral' },
                 { id: 'clients', icon: Users, label: 'Alunos' },
-                { id: 'classes', icon: Dumbbell, label: 'Aulas' },
+                { id: 'classes', icon: Dumbbell, label: 'Gestão de Aulas' },
+                { id: 'planos', icon: Tags, label: 'Planos' },
                 { id: 'finance', icon: Banknote, label: 'Financeiro' },
+                { id: 'support', icon: MessageCircle, label: 'Suporte' },
                 { id: 'tools', icon: Settings, label: 'Ferramentas' },
             ].map(item => (
                 <button
@@ -454,7 +600,7 @@ export const AdminDashboard: React.FC = () => {
 
         <div className="p-4 border-t border-slate-100">
             <button 
-                onClick={handleLogout}
+                onClick={handleLogoutClick}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-500 hover:bg-rose-50 transition-colors font-semibold"
             >
                 <LogOut className="w-5 h-5" />
@@ -468,11 +614,10 @@ export const AdminDashboard: React.FC = () => {
     <div className="lg:flex bg-slate-100 min-h-screen">
       <DesktopSidebar />
       
-      <div className="flex-1 min-w-0 lg:ml-64">
-        <Layout title={getTabTitle()} action={logoutButton} hideHeader={true} fullWidth>
-          <div className="flex-1 flex flex-col pb-24 lg:pb-0">
-            {/* Header Mobile Only */}
-            <div className="lg:hidden px-6 pt-8 pb-4 bg-white sticky top-0 z-20 border-b border-slate-100 flex items-center justify-between">
+      <div className="flex-1 min-w-0">
+        <div className="flex-1 flex flex-col pb-24 lg:pb-0">
+          {/* Header Mobile Only */}
+          <div className="lg:hidden px-6 pt-8 pb-4 bg-white sticky top-0 z-20 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <img 
                     src="https://i.postimg.cc/K86FS7PH/1000196294_fotor_enhance_20260107104529.jpg" 
@@ -491,6 +636,13 @@ export const AdminDashboard: React.FC = () => {
                       className="p-2 bg-slate-50 text-slate-600 rounded-full hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
                   >
                       <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button 
+                      onClick={handleLogoutClick}
+                      className="p-2 bg-rose-50 text-rose-600 rounded-full hover:bg-rose-100 transition-colors"
+                      title="Sair"
+                  >
+                      <LogOut className="w-5 h-5" />
                   </button>
                 </div>
             </div>
@@ -676,8 +828,8 @@ export const AdminDashboard: React.FC = () => {
                       {filteredClasses.length} Aulas Disponíveis
                   </h3>
 
-                  {/* Horizontal Scroll on Mobile, Grid on Desktop */}
-                  <div className="flex md:grid md:grid-cols-2 xl:grid-cols-3 gap-6 overflow-x-auto md:overflow-visible pb-8 -mx-6 px-6 md:mx-0 md:px-0 scrollbar-hide snap-x snap-mandatory pt-2">
+                  {/* Grid for Classes */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
                     {filteredClasses.map((cls) => {
                         const isFocused = focusedClassId === cls.id;
                         return (
@@ -691,14 +843,12 @@ export const AdminDashboard: React.FC = () => {
                             onClick={() => navigate(`/admin/classes/edit/${cls.id}`)}
                             className={`
                             relative flex flex-col justify-between 
-                            snap-center flex-shrink-0 
-                            w-[85%] md:w-full
                             p-6 rounded-[2rem] 
                             transition-all duration-300 ease-out cursor-pointer group
                             bg-white border hover:border-emerald-200 hover:shadow-xl hover:shadow-emerald-900/5 hover:-translate-y-1
                             ${isFocused 
-                                ? 'md:scale-100 scale-100 opacity-100 shadow-xl shadow-slate-200/50 border-emerald-500/30 ring-4 ring-emerald-500/5 z-10' 
-                                : 'md:opacity-100 scale-[0.92] md:scale-100 opacity-60 md:grayscale-0 grayscale-[0.5] shadow-sm border-slate-100 z-0'
+                                ? 'shadow-xl shadow-slate-200/50 border-emerald-500/30 ring-4 ring-emerald-500/5 z-10' 
+                                : 'shadow-sm border-slate-100 z-0'
                             }
                             `}
                         >
@@ -729,7 +879,16 @@ export const AdminDashboard: React.FC = () => {
                                 ))}
                             </div>
                             <div className={`flex items-center justify-between pt-5 border-t transition-colors border-slate-100`}>
-                                <div className="flex items-center gap-1.5 text-slate-500 text-xs font-bold bg-slate-50 px-3 py-2 rounded-xl"><Users className="w-3.5 h-3.5" /> <span>{cls.maxSpots} Vagas</span></div>
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowClassStudents(cls.id);
+                                    }}
+                                    className="flex items-center gap-1.5 text-emerald-600 text-xs font-bold bg-emerald-50 px-3 py-2 rounded-xl hover:bg-emerald-100 transition-colors"
+                                >
+                                    <Users className="w-3.5 h-3.5" /> 
+                                    <span>{(cls as any).enrolledCount || 0}/{cls.maxSpots} Alunos</span>
+                                </button>
                                 <div className="flex items-center gap-1.5 text-slate-500 text-xs font-bold bg-slate-50 px-3 py-2 rounded-xl"><Clock className="w-3.5 h-3.5" /> <span>{cls.duration}</span></div>
                             </div>
                             </div>
@@ -809,9 +968,136 @@ export const AdminDashboard: React.FC = () => {
                 </div>
             )}
 
-            {/* === TAB 5: TOOLS (Mais) === */}
+            {/* === TAB 5: PLANOS === */}
+            {activeTab === 'planos' && (
+              <div className="animate-fade-in space-y-6 pb-20 max-w-4xl mx-auto">
+                <PricingTable />
+              </div>
+            )}
+
+            {/* === TAB 6: SUPPORT === */}
+            {activeTab === 'support' && (
+              <div className="animate-fade-in space-y-6 pb-20 max-w-4xl mx-auto">
+                 {loadingMessages ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                    </div>
+                 ) : supportMessages.length === 0 ? (
+                    <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center py-24">
+                        <div className="bg-slate-50 p-6 rounded-full mb-4">
+                          <MessageCircle className="w-10 h-10 text-slate-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">Sem mensagens</h3>
+                        <p className="text-slate-500 text-center max-w-md">
+                          Não há mensagens de suporte ou comprovativos no momento.
+                        </p>
+                    </div>
+                 ) : (
+                    <div className="space-y-4">
+                        {supportMessages.map((msg) => {
+                            const client = clients.find(c => c.id === msg.user_id);
+                            return (
+                                <div key={msg.id} className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-100">
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center">
+                                                <UserIcon className="w-5 h-5 text-slate-500" />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-800">{client?.name || 'Aluno Desconhecido'}</h4>
+                                                <p className="text-xs text-slate-500">{new Date(msg.created_at).toLocaleString('pt-AO')}</p>
+                                            </div>
+                                        </div>
+                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                            msg.status === SupportMessageStatus.UNREAD ? 'bg-blue-100 text-blue-700' :
+                                            msg.status === SupportMessageStatus.READ ? 'bg-slate-100 text-slate-700' :
+                                            msg.status === SupportMessageStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
+                                            'bg-rose-100 text-rose-700'
+                                        }`}>
+                                            {msg.status === SupportMessageStatus.UNREAD ? 'Não Lido' :
+                                             msg.status === SupportMessageStatus.READ ? 'Lido' :
+                                             msg.status === SupportMessageStatus.APPROVED ? 'Aprovado' : 'Rejeitado'}
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="mb-4">
+                                        <span className="inline-block px-2 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded mb-2">
+                                            {msg.type === SupportMessageType.PAYMENT_PROOF ? 'Comprovativo' : 'Suporte Geral'}
+                                        </span>
+                                        {msg.content && <p className="text-slate-700 text-sm">{msg.content}</p>}
+                                    </div>
+
+                                    {msg.attachment_url && (
+                                        <div className="mb-4">
+                                            <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 text-sm font-bold flex items-center gap-1">
+                                                <FileSpreadsheet className="w-4 h-4" /> Ver Anexo
+                                            </a>
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 pt-4 border-t border-slate-100">
+                                        {msg.status === SupportMessageStatus.UNREAD && (
+                                            <button 
+                                                onClick={async () => {
+                                                    await updateMessageStatus(msg.id, SupportMessageStatus.READ);
+                                                    setSupportMessages(msgs => msgs.map(m => m.id === msg.id ? {...m, status: SupportMessageStatus.READ} : m));
+                                                }}
+                                                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-colors"
+                                            >
+                                                Marcar como Lido
+                                            </button>
+                                        )}
+                                        {msg.type === SupportMessageType.PAYMENT_PROOF && msg.status !== SupportMessageStatus.APPROVED && (
+                                            <button 
+                                                onClick={async () => {
+                                                    await updateMessageStatus(msg.id, SupportMessageStatus.APPROVED);
+                                                    setSupportMessages(msgs => msgs.map(m => m.id === msg.id ? {...m, status: SupportMessageStatus.APPROVED} : m));
+                                                }}
+                                                className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-200 transition-colors"
+                                            >
+                                                Aprovar Pagamento
+                                            </button>
+                                        )}
+                                        <button 
+                                            onClick={() => setMessageToDelete(msg.id)}
+                                            className="px-4 py-2 bg-rose-50 text-rose-600 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors ml-auto flex items-center gap-1"
+                                        >
+                                            <Trash2 className="w-4 h-4" /> Excluir
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                 )}
+              </div>
+            )}
+
+            {/* === TAB 6: TOOLS (Mais) === */}
             {activeTab === 'tools' && (
               <div className="animate-fade-in space-y-8 pb-20 max-w-4xl mx-auto">
+                <div>
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider px-2 mb-4">Comunicação</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button 
+                            onClick={() => {
+                                const msg = window.prompt('Digite a mensagem para enviar a todos os alunos:');
+                                if (msg) {
+                                    handleBroadcastMessage(msg);
+                                }
+                            }}
+                            className="group bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-100 flex items-center gap-5 hover:border-amber-200 hover:shadow-lg hover:shadow-amber-900/5 transition-all"
+                        >
+                            <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 group-hover:scale-110 transition-transform"><Bell className="w-7 h-7" /></div>
+                            <div className="text-left flex-1">
+                                <h3 className="font-bold text-slate-800 text-lg">Notificar Todos</h3>
+                                <p className="text-sm text-slate-500 mt-1">Enviar mensagem para todos os alunos</p>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-amber-500" />
+                        </button>
+                    </div>
+                </div>
+
                 <div>
                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider px-2 mb-4">Relatórios & Documentos</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -877,6 +1163,67 @@ export const AdminDashboard: React.FC = () => {
             />
           )}
 
+          {showClassStudents && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl animate-scale-in">
+                    <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                        <div>
+                            <h3 className="text-xl font-bold text-slate-900">
+                                {gymClasses.find(c => c.id === showClassStudents)?.name}
+                            </h3>
+                            <p className="text-sm text-slate-500">Alunos matriculados nesta aula</p>
+                        </div>
+                        <button 
+                            onClick={() => setShowClassStudents(null)}
+                            className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
+                    <div className="max-h-[60vh] overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                        {clients.filter(client => client.enrolled_classes?.includes(showClassStudents)).length === 0 ? (
+                            <div className="py-12 text-center text-slate-400">
+                                <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                                <p>Nenhum aluno matriculado.</p>
+                            </div>
+                        ) : (
+                            clients.filter(client => client.enrolled_classes?.includes(showClassStudents)).map(client => (
+                                <div 
+                                    key={client.id}
+                                    onClick={() => {
+                                        setShowClassStudents(null);
+                                        navigate(`/client/${client.id}`);
+                                    }}
+                                    className="flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer border border-transparent hover:border-slate-100"
+                                >
+                                    {client.avatar ? (
+                                        <img src={client.avatar} alt={client.name} className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm" />
+                                    ) : (
+                                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-lg border-2 border-white shadow-sm">
+                                            {client.name.charAt(0)}
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className="font-bold text-slate-800 truncate">{client.name}</h4>
+                                        <p className="text-xs text-slate-500">{client.phone}</p>
+                                    </div>
+                                    <ChevronRight className="w-5 h-5 text-slate-300" />
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <div className="p-6 bg-slate-50 border-t border-slate-100">
+                        <button 
+                            onClick={() => setShowClassStudents(null)}
+                            className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all"
+                        >
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            </div>
+          )}
+
           {/* BOTTOM NAVIGATION (Mobile Only) */}
           <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 px-6 py-3 pb-6 z-50">
               <div className="flex justify-between items-end max-w-md mx-auto h-12">
@@ -913,6 +1260,22 @@ export const AdminDashboard: React.FC = () => {
                 </button>
 
                 <button 
+                  onClick={() => setActiveTab('planos')}
+                  className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'planos' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <Tags className="w-6 h-6" fill={activeTab === 'planos' ? "currentColor" : "none"} />
+                  <span className="text-[10px] font-bold">Planos</span>
+                </button>
+
+                <button 
+                  onClick={() => setActiveTab('support')}
+                  className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'support' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  <MessageCircle className="w-6 h-6" fill={activeTab === 'support' ? "currentColor" : "none"} />
+                  <span className="text-[10px] font-bold">Suporte</span>
+                </button>
+
+                <button 
                   onClick={() => setActiveTab('tools')}
                   className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'tools' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
                 >
@@ -922,9 +1285,150 @@ export const AdminDashboard: React.FC = () => {
               </div>
           </div>
 
-          </div>
+          {/* Modals */}
+          <Modal
+            isOpen={showLogoutModal}
+            onClose={() => setShowLogoutModal(false)}
+            title="Sair do Sistema"
+            type="danger"
+            actions={
+              <>
+                <button
+                  onClick={() => setShowLogoutModal(false)}
+                  className="px-4 py-2 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmLogout}
+                  className="px-4 py-2 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors shadow-md shadow-rose-500/20"
+                >
+                  Sair
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mb-4">
+                <LogOut className="w-8 h-8" />
+              </div>
+              <p className="text-slate-600 mb-2">
+                Deseja realmente sair do painel de administração?
+              </p>
+            </div>
+          </Modal>
 
-        </Layout>
+          <Modal
+            isOpen={!!classToDelete}
+            onClose={() => setClassToDelete(null)}
+            title="Excluir Aula"
+            type="danger"
+            actions={
+              <>
+                <button
+                  onClick={() => setClassToDelete(null)}
+                  className="px-4 py-2 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmDeleteClass}
+                  className="px-4 py-2 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors shadow-md shadow-rose-500/20"
+                >
+                  Excluir
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mb-4">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <p className="text-slate-600 mb-2">
+                Tem certeza que deseja excluir esta aula?
+              </p>
+              <p className="text-sm text-slate-500">
+                Esta ação não pode ser desfeita.
+              </p>
+            </div>
+          </Modal>
+
+          <Modal
+            isOpen={!!messageToDelete}
+            onClose={() => setMessageToDelete(null)}
+            title="Excluir Mensagem"
+            type="danger"
+            actions={
+              <>
+                <button
+                  onClick={() => setMessageToDelete(null)}
+                  className="px-4 py-2 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    if (messageToDelete) {
+                      await deleteMessage(messageToDelete);
+                      setSupportMessages(msgs => msgs.filter(m => m.id !== messageToDelete));
+                      setMessageToDelete(null);
+                    }
+                  }}
+                  className="px-4 py-2 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors shadow-md shadow-rose-500/20"
+                >
+                  Excluir
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mb-4">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <p className="text-slate-600 mb-2">
+                Tem certeza que deseja excluir esta mensagem?
+              </p>
+            </div>
+          </Modal>
+
+          <Modal
+            isOpen={alertModal.isOpen}
+            onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+            title={alertModal.title}
+            type={alertModal.type}
+            actions={
+              <button
+                onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+                className={`px-4 py-2 text-white font-bold rounded-xl transition-colors shadow-md ${
+                  alertModal.type === 'danger' ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-500/20' :
+                  alertModal.type === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20' :
+                  alertModal.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' :
+                  'bg-slate-500 hover:bg-slate-600 shadow-slate-500/20'
+                }`}
+              >
+                OK
+              </button>
+            }
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+                alertModal.type === 'danger' ? 'bg-rose-100 text-rose-500' :
+                alertModal.type === 'success' ? 'bg-emerald-100 text-emerald-500' :
+                alertModal.type === 'warning' ? 'bg-amber-100 text-amber-500' :
+                'bg-slate-100 text-slate-500'
+              }`}>
+                {alertModal.type === 'danger' ? <XCircle className="w-8 h-8" /> :
+                 alertModal.type === 'success' ? <CheckCircle2 className="w-8 h-8" /> :
+                 alertModal.type === 'warning' ? <AlertTriangle className="w-8 h-8" /> :
+                 <Info className="w-8 h-8" />}
+              </div>
+              <p className="text-slate-600 whitespace-pre-line">
+                {alertModal.message}
+              </p>
+            </div>
+          </Modal>
+
+        </div>
       </div>
     </div>
   );
