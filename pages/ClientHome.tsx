@@ -285,7 +285,10 @@ const ClassesTab: React.FC<{ client: User }> = ({ client }) => {
     loadData();
   }, [client.id]);
 
+  const [durations, setDurations] = useState<Record<string, number>>({});
+
   const handleRequest = async (gymClass: GymClass) => {
+    const duration = durations[gymClass.id] || 30;
     const newRequest: ClassRequest = {
         id: crypto.randomUUID(),
         user_id: client.id,
@@ -294,6 +297,7 @@ const ClassesTab: React.FC<{ client: User }> = ({ client }) => {
         class_id: gymClass.id,
         class_name: gymClass.name,
         status: ClassRequestStatus.PENDING,
+        duration: duration,
         created_at: new Date().toISOString()
     };
     await createClassRequest(newRequest);
@@ -310,18 +314,31 @@ const ClassesTab: React.FC<{ client: User }> = ({ client }) => {
         const request = userRequests.find(r => r.class_id === cls.id && r.status === ClassRequestStatus.PENDING);
         
         return (
-          <div key={cls.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-4">
-            <div className="flex-1">
-              <h3 className="font-bold text-slate-900 dark:text-white">{cls.name}</h3>
-              <p className="text-sm text-slate-500">{cls.instructor} • {cls.startTime}</p>
+          <div key={cls.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <h3 className="font-bold text-slate-900 dark:text-white">{cls.name}</h3>
+                <p className="text-sm text-slate-500">{cls.instructor} • {cls.startTime}</p>
+              </div>
+              {isEnrolled ? (
+                  <span className="text-emerald-600 font-bold text-sm">Inscrito ✓</span>
+              ) : request ? (
+                  <span className="text-amber-600 font-bold text-sm">Aguardando aprovação</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                    <select 
+                        className="p-2 bg-slate-50 dark:bg-slate-700 border border-slate-100 dark:border-slate-600 rounded-xl text-sm text-slate-800 dark:text-slate-200"
+                        value={durations[cls.id] || 30}
+                        onChange={(e) => setDurations(prev => ({ ...prev, [cls.id]: Number(e.target.value) }))}
+                    >
+                        <option value={30}>30 dias</option>
+                        <option value={90}>90 dias</option>
+                        <option value={180}>+90 dias</option>
+                    </select>
+                    <button onClick={() => handleRequest(cls)} className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-sm">Solicitar</button>
+                </div>
+              )}
             </div>
-            {isEnrolled ? (
-                <span className="text-emerald-600 font-bold text-sm">Inscrito ✓</span>
-            ) : request ? (
-                <span className="text-amber-600 font-bold text-sm">Aguardando aprovação</span>
-            ) : (
-                <button onClick={() => handleRequest(cls)} className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-sm">Solicitar Inscrição</button>
-            )}
           </div>
         );
       })}
@@ -555,7 +572,11 @@ export const ClientHome: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchClient = async () => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+        if (!user) {
+            navigate('/client-login');
+            return;
+        }
         const clientId = localStorage.getItem('gym_client_id');
         if (!clientId) {
             navigate('/client-login');
@@ -569,8 +590,8 @@ export const ClientHome: React.FC = () => {
         }
         setClient(foundClient);
         setLoading(false);
-    };
-    fetchClient();
+    });
+    return () => unsubscribe();
   }, [navigate]);
 
   if (loading) return <Layout hideHeader><div className="flex flex-col items-center justify-center h-screen"><Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" /></div></Layout>;

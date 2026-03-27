@@ -13,6 +13,7 @@ export interface ClassRequest {
   class_id: string;
   class_name: string;
   status: ClassRequestStatus;
+  duration: number; // Em dias
   created_at: string;
   resolved_at?: string;
   resolved_by?: string;

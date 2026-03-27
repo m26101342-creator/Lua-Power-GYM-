@@ -42,11 +42,12 @@ import { QRScanner } from '../components/QRScanner';
 import { ScannedClientModal } from '../components/ScannedClientModal';
 import { PricingTable } from '../components/PricingTable';
 import { getStudents } from '../services/userService';
-import { getClasses, deleteClass } from '../services/classService';
+import { getClasses, deleteClass, saveClass } from '../services/classService';
 import { checkAndScheduleNotifications } from '../services/notificationService';
 import { getAllMessages, updateMessageStatus, deleteMessage } from '../services/supportService';
 import { generateClientListPDF } from '../services/pdfService';
-import { User, UserStatus, GymClass, SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
+import { getClassRequests, updateRequestStatus } from '../services/classRequestService';
+import { User, UserStatus, GymClass, SupportMessage, SupportMessageStatus, SupportMessageType, ClassRequest, ClassRequestStatus } from '../types';
 import { getUserStatus, formatDate } from '../utils/dateUtils';
 import { db, auth } from '../services/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -129,7 +130,7 @@ export const AdminDashboard: React.FC = () => {
   const [clients, setClients] = useState<User[]>([]);
   const [gymClasses, setGymClasses] = useState<GymClass[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'classes' | 'finance' | 'planos' | 'support' | 'tools'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'classes' | 'planos' | 'support' | 'requests'>('dashboard');
   const [tick, setTick] = useState(0); 
   const [showTutorial, setShowTutorial] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -142,7 +143,6 @@ export const AdminDashboard: React.FC = () => {
   const [tabTutorials, setTabTutorials] = useState({
     dashboard: true,
     clients: true,
-    finance: true,
     classes: true
   });
 
@@ -154,6 +154,10 @@ export const AdminDashboard: React.FC = () => {
   // Support Tab State
   const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+
+  // Requests Tab State
+  const [requests, setRequests] = useState<ClassRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
 
   // Modal States
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -230,6 +234,24 @@ export const AdminDashboard: React.FC = () => {
       }
     };
     fetchMessages();
+  }, [activeTab]);
+
+  // Load Requests when switching to requests tab
+  useEffect(() => {
+    const fetchRequests = async () => {
+      if (activeTab === 'requests') {
+        setLoadingRequests(true);
+        try {
+          const data = await getClassRequests();
+          setRequests(data);
+        } catch (error) {
+          console.error("Failed to load requests:", error);
+        } finally {
+          setLoadingRequests(false);
+        }
+      }
+    };
+    fetchRequests();
   }, [activeTab]);
 
   // Intersection Observer for Classes Scroll Highlight
@@ -379,6 +401,34 @@ export const AdminDashboard: React.FC = () => {
   const handleDeleteClass = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setClassToDelete(id);
+  };
+
+  const seedClasses = async () => {
+    const classesToSeed: GymClass[] = [
+      { id: crypto.randomUUID(), name: 'Ginásio (Sem PT)', instructor: 'N/A', startTime: '06:00', duration: '60 min', maxSpots: 20, weekDays: [1, 2, 3, 4, 5], price: 15000 },
+      { id: crypto.randomUUID(), name: 'Treino Funcional', instructor: 'N/A', startTime: '07:00', duration: '60 min', maxSpots: 15, weekDays: [1, 2, 3, 4, 5], price: 10000 },
+      { id: crypto.randomUUID(), name: 'Musculação (PT)', instructor: 'N/A', startTime: '08:00', duration: '60 min', maxSpots: 10, weekDays: [1, 2, 3, 4, 5], price: 35000 },
+      { id: crypto.randomUUID(), name: 'Diária', instructor: 'N/A', startTime: '09:00', duration: '60 min', maxSpots: 50, weekDays: [1, 2, 3, 4, 5, 6], price: 2000 },
+      { id: crypto.randomUUID(), name: 'Diária (PT)', instructor: 'N/A', startTime: '10:00', duration: '60 min', maxSpots: 50, weekDays: [1, 2, 3, 4, 5, 6], price: 3000 },
+      { id: crypto.randomUUID(), name: 'Musculação + Kickboxing', instructor: 'N/A', startTime: '11:00', duration: '60 min', maxSpots: 10, weekDays: [1, 3, 5], price: 32000 },
+      { id: crypto.randomUUID(), name: 'Musculação + Boxe', instructor: 'N/A', startTime: '12:00', duration: '60 min', maxSpots: 10, weekDays: [2, 4, 6], price: 32000 },
+      { id: crypto.randomUUID(), name: 'Musculação + Judo', instructor: 'N/A', startTime: '13:00', duration: '60 min', maxSpots: 10, weekDays: [1, 3, 5], price: 26000 },
+      { id: crypto.randomUUID(), name: 'Musculação + T. Funcional', instructor: 'N/A', startTime: '14:00', duration: '60 min', maxSpots: 10, weekDays: [2, 4, 6], price: 22000 },
+      { id: crypto.randomUUID(), name: 'Geral', instructor: 'N/A', startTime: '15:00', duration: '60 min', maxSpots: 20, weekDays: [1, 2, 3, 4, 5, 6], price: 45000 },
+      { id: crypto.randomUUID(), name: 'Judo (3X semana)', instructor: 'N/A', startTime: '16:00', duration: '60 min', maxSpots: 15, weekDays: [1, 3, 5], price: 13900 },
+      { id: crypto.randomUUID(), name: 'Judo (2X semana)', instructor: 'N/A', startTime: '17:00', duration: '60 min', maxSpots: 15, weekDays: [2, 4], price: 11000 },
+      { id: crypto.randomUUID(), name: 'Boxe (3X semana)', instructor: 'N/A', startTime: '18:00', duration: '60 min', maxSpots: 15, weekDays: [1, 3, 5], price: 20000 },
+      { id: crypto.randomUUID(), name: 'Kickboxing / adultos (3X semana)', instructor: 'N/A', startTime: '19:00', duration: '60 min', maxSpots: 15, weekDays: [1, 3, 5], price: 20000 },
+      { id: crypto.randomUUID(), name: 'Jiu-jitsu / adultos (3X semana)', instructor: 'N/A', startTime: '20:00', duration: '60 min', maxSpots: 15, weekDays: [1, 3, 5], price: 20000 },
+      { id: crypto.randomUUID(), name: 'Jiu-jitsu / crianças (3X semana)', instructor: 'N/A', startTime: '09:00', duration: '60 min', maxSpots: 15, weekDays: [6], price: 12000 },
+      { id: crypto.randomUUID(), name: 'Kickboxing / crianças (3X semana)', instructor: 'N/A', startTime: '10:00', duration: '60 min', maxSpots: 15, weekDays: [6], price: 12000 },
+    ];
+
+    for (const gymClass of classesToSeed) {
+      await saveClass(gymClass);
+    }
+    alert('Aulas padrão adicionadas com sucesso!');
+    window.location.reload();
   };
 
   const confirmDeleteClass = async () => {
@@ -546,6 +596,7 @@ export const AdminDashboard: React.FC = () => {
           case 'classes': return 'Gestão de Aulas';
           case 'planos': return 'Planos';
           case 'support': return 'Suporte';
+          case 'requests': return 'Solicitações';
           case 'tools': return 'Ferramentas';
           default: return 'Gestão';
       }
@@ -580,9 +631,8 @@ export const AdminDashboard: React.FC = () => {
                 { id: 'clients', icon: Users, label: 'Alunos' },
                 { id: 'classes', icon: Dumbbell, label: 'Gestão de Aulas' },
                 { id: 'planos', icon: Tags, label: 'Planos' },
-                { id: 'finance', icon: Banknote, label: 'Financeiro' },
+                { id: 'requests', icon: MousePointerClick, label: 'Solicitações' },
                 { id: 'support', icon: MessageCircle, label: 'Suporte' },
-                { id: 'tools', icon: Settings, label: 'Ferramentas' },
             ].map(item => (
                 <button
                     key={item.id}
@@ -669,31 +719,41 @@ export const AdminDashboard: React.FC = () => {
             {/* === TAB 1: DASHBOARD (Home) === */}
             {activeTab === 'dashboard' && (
               <div className="animate-fade-in space-y-6">
-                {/* 3 Main Stats Cards - Responsive Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col items-center justify-center hover:scale-[1.02] transition-transform">
-                    <div className="mb-3 w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500 shadow-sm">
-                      <CheckCircle2 className="w-6 h-6" />
+                {/* 3 Main Stats Cards - Horizontal Grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                    <div className="mb-1 w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
+                      <CheckCircle2 className="w-4 h-4" />
                     </div>
-                    <span className="text-4xl font-extrabold text-slate-800 tracking-tight">{stats.active}</span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 mt-1">Alunos Ativos</span>
+                    <span className="text-2xl font-extrabold text-slate-800 tracking-tight">{stats.active}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Ativos</span>
                   </div>
 
-                  <div className="bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col items-center justify-center hover:scale-[1.02] transition-transform">
-                    <div className="mb-3 w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 shadow-sm">
-                      <AlertTriangle className="w-6 h-6" />
+                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                    <div className="mb-1 w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">
+                      <AlertTriangle className="w-4 h-4" />
                     </div>
-                    <span className="text-4xl font-extrabold text-slate-800 tracking-tight">{stats.warning}</span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-500 mt-1">A Expirar</span>
+                    <span className="text-2xl font-extrabold text-slate-800 tracking-tight">{stats.warning}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500">A Expirar</span>
                   </div>
 
-                  <div className="bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex flex-col items-center justify-center hover:scale-[1.02] transition-transform">
-                    <div className="mb-3 w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 shadow-sm">
-                      <XCircle className="w-6 h-6" />
+                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center">
+                    <div className="mb-1 w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-500">
+                      <XCircle className="w-4 h-4" />
                     </div>
-                    <span className="text-4xl font-extrabold text-slate-800 tracking-tight">{stats.expired}</span>
-                    <span className="text-xs font-bold uppercase tracking-wider text-rose-500 mt-1">Vencidos</span>
+                    <span className="text-2xl font-extrabold text-slate-800 tracking-tight">{stats.expired}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-500">Vencidos</span>
                   </div>
+                </div>
+
+                <div className="flex justify-center">
+                    <button 
+                        onClick={() => setShowQRScanner(true)}
+                        className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all"
+                    >
+                        <QrCode className="w-5 h-5" />
+                        Escanear QR Code
+                    </button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -832,6 +892,10 @@ export const AdminDashboard: React.FC = () => {
                     <button onClick={() => navigate('/admin/classes/add')} className="w-full md:w-auto px-6 h-[58px] bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-emerald-500 active:scale-95 transition-all gap-2 font-bold">
                         <Plus className="w-6 h-6" />
                         <span className="md:hidden lg:inline">Nova Aula</span>
+                    </button>
+                    <button onClick={seedClasses} className="w-full md:w-auto px-6 h-[58px] bg-slate-800 text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-slate-700 active:scale-95 transition-all gap-2 font-bold">
+                        <Database className="w-6 h-6" />
+                        <span className="md:hidden lg:inline">Adicionar Aulas Padrão</span>
                     </button>
                 </div>
 
@@ -1084,6 +1148,73 @@ export const AdminDashboard: React.FC = () => {
               </div>
             )}
 
+            {/* === TAB 7: REQUESTS === */}
+            {activeTab === 'requests' && (
+              <div className="animate-fade-in space-y-6 pb-20 max-w-4xl mx-auto">
+                 {loadingRequests ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                    </div>
+                 ) : requests.length === 0 ? (
+                    <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center py-24">
+                        <div className="bg-slate-50 p-6 rounded-full mb-4">
+                          <MousePointerClick className="w-10 h-10 text-slate-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">Sem solicitações</h3>
+                        <p className="text-slate-500 text-center max-w-md">
+                          Não há solicitações de aulas pendentes no momento.
+                        </p>
+                    </div>
+                 ) : (
+                    <div className="space-y-4">
+                        {requests.map((req) => (
+                            <div key={req.id} className="bg-white p-6 rounded-[1.5rem] shadow-sm border border-slate-100">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div>
+                                        <h4 className="font-bold text-slate-800">{req.user_name}</h4>
+                                        <p className="text-sm text-slate-600">Aula: {req.class_name}</p>
+                                        <p className="text-sm text-slate-600">Duração: {req.duration} dias</p>
+                                        <p className="text-xs text-slate-500">{new Date(req.created_at).toLocaleString('pt-AO')}</p>
+                                    </div>
+                                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                        req.status === ClassRequestStatus.PENDING ? 'bg-blue-100 text-blue-700' :
+                                        req.status === ClassRequestStatus.APPROVED ? 'bg-emerald-100 text-emerald-700' :
+                                        'bg-rose-100 text-rose-700'
+                                    }`}>
+                                        {req.status === ClassRequestStatus.PENDING ? 'Pendente' :
+                                         req.status === ClassRequestStatus.APPROVED ? 'Aprovado' : 'Rejeitado'}
+                                    </span>
+                                </div>
+                                
+                                {req.status === ClassRequestStatus.PENDING && (
+                                    <div className="flex items-center gap-2 pt-4 border-t border-slate-100">
+                                        <button 
+                                            onClick={async () => {
+                                                await updateRequestStatus(req.id, ClassRequestStatus.APPROVED);
+                                                setRequests(reqs => reqs.map(r => r.id === req.id ? {...r, status: ClassRequestStatus.APPROVED} : r));
+                                            }}
+                                            className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:bg-emerald-200 transition-colors"
+                                        >
+                                            Aprovar
+                                        </button>
+                                        <button 
+                                            onClick={async () => {
+                                                await updateRequestStatus(req.id, ClassRequestStatus.REJECTED);
+                                                setRequests(reqs => reqs.map(r => r.id === req.id ? {...r, status: ClassRequestStatus.REJECTED} : r));
+                                            }}
+                                            className="px-4 py-2 bg-rose-100 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-200 transition-colors"
+                                        >
+                                            Negar
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                 )}
+              </div>
+            )}
+
             {/* === TAB 6: TOOLS (Mais) === */}
             {activeTab === 'tools' && (
               <div className="animate-fade-in space-y-8 pb-20 max-w-4xl mx-auto">
@@ -1270,14 +1401,6 @@ export const AdminDashboard: React.FC = () => {
                 </button>
 
                 <button 
-                  onClick={() => setActiveTab('finance')}
-                  className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'finance' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  <Banknote className="w-6 h-6" fill={activeTab === 'finance' ? "currentColor" : "none"} />
-                  <span className="text-[10px] font-bold">Financeiro</span>
-                </button>
-
-                <button 
                   onClick={() => setActiveTab('planos')}
                   className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'planos' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
                 >
@@ -1294,11 +1417,11 @@ export const AdminDashboard: React.FC = () => {
                 </button>
 
                 <button 
-                  onClick={() => setActiveTab('tools')}
-                  className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'tools' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
+                  onClick={() => setActiveTab('requests')}
+                  className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 flex-1 ${activeTab === 'requests' ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'}`}
                 >
-                  <Menu className="w-6 h-6" />
-                  <span className="text-[10px] font-bold">Mais</span>
+                  <MousePointerClick className="w-6 h-6" fill={activeTab === 'requests' ? "currentColor" : "none"} />
+                  <span className="text-[10px] font-bold">Solicitações</span>
                 </button>
               </div>
           </div>

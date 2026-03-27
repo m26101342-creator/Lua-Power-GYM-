@@ -1,6 +1,7 @@
 import { collection, doc, setDoc, getDocs, query, where, deleteDoc, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
 import { SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
+import { handleFirestoreError, OperationType } from '../utils/firebaseError';
 
 const COLLECTION_NAME = 'support_messages';
 
@@ -9,8 +10,7 @@ export const saveSupportMessage = async (message: SupportMessage): Promise<void>
     const docRef = doc(db, COLLECTION_NAME, message.id);
     await setDoc(docRef, message);
   } catch (error) {
-    console.error("Error saving support message:", error);
-    throw error;
+    handleFirestoreError(error, OperationType.WRITE, COLLECTION_NAME);
   }
 };
 
@@ -27,7 +27,7 @@ export const getMessagesByUser = async (userId: string): Promise<SupportMessage[
     });
     return messages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   } catch (error) {
-    console.error("Error fetching user messages:", error);
+    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
     return [];
   }
 };
@@ -42,7 +42,7 @@ export const getAllMessages = async (): Promise<SupportMessage[]> => {
     });
     return messages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   } catch (error) {
-    console.error("Error fetching all messages:", error);
+    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAME);
     return [];
   }
 };
@@ -52,8 +52,7 @@ export const updateMessageStatus = async (id: string, status: SupportMessageStat
     const docRef = doc(db, COLLECTION_NAME, id);
     await updateDoc(docRef, { status });
   } catch (error) {
-    console.error("Error updating message status:", error);
-    throw error;
+    handleFirestoreError(error, OperationType.UPDATE, COLLECTION_NAME);
   }
 };
 
@@ -62,7 +61,6 @@ export const deleteMessage = async (id: string): Promise<void> => {
     const docRef = doc(db, COLLECTION_NAME, id);
     await deleteDoc(docRef);
   } catch (error) {
-    console.error("Error deleting message:", error);
-    throw error;
+    handleFirestoreError(error, OperationType.DELETE, COLLECTION_NAME);
   }
 };

@@ -1,57 +1,85 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { X, Camera, CheckCircle, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface QRScannerProps {
   onScan: (decodedText: string) => void;
   onClose: () => void;
+  status?: 'regular' | 'expired' | null;
 }
 
-export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onClose }) => {
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+export const QRScanner: React.FC<QRScannerProps> = ({ onScan, onClose, status }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-      /* verbose= */ false
-    );
-
-    scanner.render(
-      (decodedText) => {
-        // Stop scanner to avoid multiple scans
-        scanner.clear().catch(console.error);
-        onScan(decodedText);
-      },
-      (errorMessage) => {
-        // Ignore scanning errors
+    const html5QrCode = new Html5Qrcode("qr-reader");
+    
+    Html5Qrcode.getCameras().then(devices => {
+      if (devices && devices.length) {
+        html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            html5QrCode.stop().then(() => onScan(decodedText)).catch(console.error);
+          },
+          () => {}
+        ).catch((err) => setError("Permissão de câmera negada ou erro."));
+      } else {
+        setError("Nenhuma câmera encontrada.");
       }
-    );
-
-    scannerRef.current = scanner;
+    }).catch(() => setError("Erro ao acessar a câmera."));
 
     return () => {
-      scanner.clear().catch(console.error);
+      if (html5QrCode.isScanning) {
+        html5QrCode.stop().catch(console.error);
+      }
     };
   }, [onScan]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h3 className="font-bold text-slate-800">Escanear QR Code</h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-colors">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.9 }}
+        className="bg-white rounded-[2rem] w-full max-w-sm overflow-hidden shadow-2xl relative"
+      >
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <h3 className="font-bold text-slate-800 text-lg">Check-in de Aluno</h3>
+          <button onClick={onClose} className="p-2 bg-white text-slate-400 rounded-full hover:bg-slate-100 transition-colors shadow-sm">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-4">
-          <div id="qr-reader" className="w-full rounded-2xl overflow-hidden bg-slate-50"></div>
-          <p className="text-center text-slate-500 text-sm mt-4">
-            Aponte a câmera para o QR Code do aluno para realizar o check-in.
-          </p>
+        
+        <div className="p-6 flex flex-col items-center">
+          <div id="qr-reader" className="w-full aspect-square rounded-3xl overflow-hidden bg-slate-900 relative">
+            <AnimatePresence>
+              {status && (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className={`absolute inset-0 z-10 flex items-center justify-center ${status === 'regular' ? 'bg-emerald-500/90' : 'bg-rose-500/90'}`}
+                >
+                  {status === 'regular' ? (
+                    <CheckCircle className="w-24 h-24 text-white" />
+                  ) : (
+                    <AlertCircle className="w-24 h-24 text-white" />
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          
+          <div className="mt-6 text-center space-y-2">
+            <p className="font-bold text-slate-800">Instruções:</p>
+            <p className="text-slate-500 text-sm">
+              Posicione o QR Code do aluno dentro da área demarcada para registrar a entrada.
+            </p>
+          </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
