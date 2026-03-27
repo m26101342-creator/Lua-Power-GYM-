@@ -1,4 +1,23 @@
 
+export enum ClassRequestStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED'
+}
+
+export interface ClassRequest {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_phone: string;
+  class_id: string;
+  class_name: string;
+  status: ClassRequestStatus;
+  created_at: string;
+  resolved_at?: string;
+  resolved_by?: string;
+}
+
 export interface EnrolledClass {
   classId: string;
   name: string;

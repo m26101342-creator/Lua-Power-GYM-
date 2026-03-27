@@ -6,14 +6,14 @@ import { getUserById } from '../services/userService';
 import { getClasses } from '../services/classService';
 import { generateClientPDF } from '../services/pdfService';
 import { getUserStatus, formatDate } from '../utils/dateUtils';
-import { User, UserStatus, GymClass } from '../types';
+import { User, UserStatus, GymClass, ClassRequest, ClassRequestStatus } from '../types';
 import { PricingTable } from '../components/PricingTable';
 import { db, auth } from '../services/firebase';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { Modal } from '../components/Modal';
-
 import { SupportMessage, SupportMessageStatus, SupportMessageType } from '../types';
 import { saveSupportMessage } from '../services/supportService';
+import { createClassRequest, getRequestsByUser } from '../services/classRequestService';
 
 const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({ client, changeTab }) => {
   const [activeModal, setActiveModal] = useState<string | null>(null);
@@ -270,76 +270,61 @@ const HomeTab: React.FC<{ client: User; changeTab: (tab: string) => void }> = ({
 };
 
 const ClassesTab: React.FC<{ client: User }> = ({ client }) => {
-  const [selectedDateIdx, setSelectedDateIdx] = useState(0); 
-  const [bookings, setBookings] = useState<string[]>([]);
   const [allClasses, setAllClasses] = useState<GymClass[]>([]);
-  const [calendarDays, setCalendarDays] = useState<{ day: string, date: string, fullDate: Date, weekDayIdx: number }[]>([]);
+  const [userRequests, setUserRequests] = useState<ClassRequest[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem(`bookings_${client.id}`);
-    if (saved) setBookings(JSON.parse(saved));
-    getClasses().then(data => setAllClasses(data));
-    const days = [];
-    const weekMap = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
-    const today = new Date();
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      days.push({ day: weekMap[d.getDay()], date: d.getDate().toString().padStart(2, '0'), fullDate: d, weekDayIdx: d.getDay() });
-    }
-    setCalendarDays(days);
+    const loadData = async () => {
+        const classes = await getClasses();
+        setAllClasses(classes);
+        const requests = await getRequestsByUser(client.id);
+        setUserRequests(requests);
+        setLoading(false);
+    };
+    loadData();
   }, [client.id]);
 
-  const toggleBooking = (classId: string) => {
-    let newBookings;
-    if (bookings.includes(classId)) newBookings = bookings.filter(b => b !== classId);
-    else newBookings = [...bookings, classId];
-    setBookings(newBookings);
-    localStorage.setItem(`bookings_${client.id}`, JSON.stringify(newBookings));
+  const handleRequest = async (gymClass: GymClass) => {
+    const newRequest: ClassRequest = {
+        id: crypto.randomUUID(),
+        user_id: client.id,
+        user_name: client.name,
+        user_phone: client.phone || '',
+        class_id: gymClass.id,
+        class_name: gymClass.name,
+        status: ClassRequestStatus.PENDING,
+        created_at: new Date().toISOString()
+    };
+    await createClassRequest(newRequest);
+    setUserRequests(prev => [...prev, newRequest]);
   };
 
-  const selectedDayInfo = calendarDays[selectedDateIdx];
-  const enrolledIds = client.enrolled_classes || [];
-  const daysClasses = allClasses.filter(c => c.weekDays.includes(selectedDayInfo?.weekDayIdx)).filter(c => enrolledIds.includes(c.id)).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  if (loading) return <div className="flex justify-center p-10"><Loader2 className="w-8 h-8 animate-spin text-emerald-500" /></div>;
 
   return (
-    <div className="animate-fade-in pb-32 h-full flex flex-col max-w-lg mx-auto">
-      <div className="px-6 pt-12 pb-4 bg-white dark:bg-slate-900 sticky top-0 z-10 border-b border-slate-100 dark:border-slate-800 transition-colors duration-300">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Agenda de Aulas</h1>
-        <div className="flex justify-between gap-2 overflow-x-auto scrollbar-hide pb-2">
-          {calendarDays.map((d, idx) => (
-            <button key={idx} onClick={() => setSelectedDateIdx(idx)} className={`flex flex-col items-center justify-center min-w-[50px] h-[70px] rounded-2xl transition-all flex-shrink-0 ${selectedDateIdx === idx ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 scale-110' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
-              <span className="text-[10px] font-bold uppercase mb-1">{d.day}</span>
-              <span className={`text-lg font-bold ${selectedDateIdx === idx ? 'text-white' : 'text-slate-800 dark:text-slate-200'}`}>{d.date}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="p-6 space-y-4 flex-1 overflow-y-auto">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{daysClasses.length > 0 ? 'Suas Aulas Disponíveis' : 'Agenda Vazia'}</p>
-        {daysClasses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center opacity-60">
-             <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-400"><Calendar className="w-8 h-8" /></div>
-             <p className="text-slate-500 dark:text-slate-400 font-medium text-sm px-8">Nenhuma aula do seu plano agendada para hoje. Aproveite para descansar!</p>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Aulas Disponíveis</h1>
+      {allClasses.map(cls => {
+        const isEnrolled = client.enrolled_classes?.includes(cls.id);
+        const request = userRequests.find(r => r.class_id === cls.id && r.status === ClassRequestStatus.PENDING);
+        
+        return (
+          <div key={cls.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center gap-4">
+            <div className="flex-1">
+              <h3 className="font-bold text-slate-900 dark:text-white">{cls.name}</h3>
+              <p className="text-sm text-slate-500">{cls.instructor} • {cls.startTime}</p>
+            </div>
+            {isEnrolled ? (
+                <span className="text-emerald-600 font-bold text-sm">Inscrito ✓</span>
+            ) : request ? (
+                <span className="text-amber-600 font-bold text-sm">Aguardando aprovação</span>
+            ) : (
+                <button onClick={() => handleRequest(cls)} className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-sm">Solicitar Inscrição</button>
+            )}
           </div>
-        ) : (
-          daysClasses.map((item) => {
-              const isBooked = bookings.includes(item.id);
-              return (
-                <div key={item.id} className={`p-5 rounded-2xl shadow-sm border flex items-center gap-4 transition-all ${isBooked ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'}`}>
-                  <div className={`flex flex-col items-center justify-center w-14 h-14 rounded-xl font-bold border ${isBooked ? 'bg-white dark:bg-emerald-900 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800' : 'bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-slate-300 border-slate-100 dark:border-slate-600'}`}>
-                      <span className="text-lg">{item.startTime}</span>
-                  </div>
-                  <div className="flex-1">
-                      <h3 className="font-bold text-slate-900 dark:text-white">{item.name}</h3>
-                      <div className="flex items-center gap-3 mt-1"><span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1"><UserIcon className="w-3 h-3" /> {item.instructor}</span><span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {item.duration}</span></div>
-                  </div>
-                  <button onClick={() => toggleBooking(item.id)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isBooked ? 'bg-emerald-500 text-white shadow-emerald-500/20' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'}`}>{isBooked ? 'Confirmado' : 'Check-in'}</button>
-                </div>
-              );
-          })
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 };
@@ -359,7 +344,7 @@ const PaymentsTab: React.FC<{ client: User }> = ({ client }) => {
         };
         fetchAmount();
     }, [client.enrolled_classes]);
-
+    
     const formattedAmount = new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA', maximumFractionDigits: 0 }).format(totalAmount);
   return (
     <div className="animate-fade-in pb-32 h-full flex flex-col max-w-lg mx-auto">
@@ -376,6 +361,79 @@ const PaymentsTab: React.FC<{ client: User }> = ({ client }) => {
         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 px-1">Histórico de Pagamentos</h3>
         <div className="space-y-4"><div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 flex justify-between items-center opacity-60"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center"><CheckCircle2 className="w-5 h-5 text-slate-400" /></div><div><p className="font-bold text-slate-800 dark:text-slate-200">Mensalidade Anterior</p><p className="text-xs text-slate-400">{formatDate(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString())}</p></div></div><span className="font-bold text-slate-400">{formattedAmount}</span></div></div>
       </div>
+    </div>
+  );
+};
+
+const SupportTab: React.FC<{ client: User }> = ({ client }) => {
+  const [supportMessage, setSupportMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
+
+  const handleSendSupport = async () => {
+    if (!supportMessage.trim()) return;
+    setIsSending(true);
+    
+    const newMessage: SupportMessage = {
+      id: crypto.randomUUID(),
+      user_id: client.id,
+      type: SupportMessageType.GENERAL_SUPPORT,
+      content: supportMessage,
+      status: SupportMessageStatus.UNREAD,
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      await saveSupportMessage(newMessage);
+      setSendSuccess(true);
+      setSupportMessage('');
+      setTimeout(() => setSendSuccess(false), 2000);
+    } catch (error) {
+      console.error("Error sending support message:", error);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-lg mx-auto">
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Suporte</h1>
+      {sendSuccess ? (
+        <div className="py-8 flex flex-col items-center text-center">
+          <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4">
+            <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Mensagem Enviada!</h4>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Nossa equipe responderá em breve.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">Como podemos ajudar você hoje?</p>
+          <textarea 
+            className="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-100 dark:border-slate-600 rounded-2xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+            rows={4}
+            placeholder="Digite sua mensagem aqui..."
+            value={supportMessage}
+            onChange={(e) => setSupportMessage(e.target.value)}
+          />
+          <button 
+            onClick={handleSendSupport}
+            disabled={isSending || !supportMessage.trim()}
+            className="w-full py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enviar Mensagem'}
+          </button>
+          
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+            <button 
+              onClick={() => window.open('https://wa.me/244921156899', '_blank')}
+              className="w-full py-3 text-emerald-600 dark:text-emerald-400 font-bold text-sm flex items-center justify-center gap-2"
+            >
+              <MessageCircle className="w-4 h-4" /> Falar pelo WhatsApp
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -488,95 +546,6 @@ const ProfileTab: React.FC<{ client: User }> = ({ client }) => {
           </Modal>
         </div>
     );
-};
-
-const SupportTab: React.FC<{ client: User }> = ({ client }) => {
-  const [supportMessage, setSupportMessage] = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [sendSuccess, setSendSuccess] = useState(false);
-
-  const handleSendSupport = async () => {
-    if (!supportMessage.trim()) return;
-    setIsSending(true);
-    
-    const newMessage: SupportMessage = {
-      id: crypto.randomUUID(),
-      user_id: client.id,
-      type: SupportMessageType.GENERAL_SUPPORT,
-      content: supportMessage,
-      status: SupportMessageStatus.UNREAD,
-      created_at: new Date().toISOString()
-    };
-
-    try {
-      await saveSupportMessage(newMessage);
-      setSendSuccess(true);
-      setSupportMessage('');
-      setTimeout(() => setSendSuccess(false), 3000);
-    } catch (error) {
-      console.error("Error sending support message:", error);
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  return (
-    <div className="animate-fade-in pb-32 h-full flex flex-col max-w-lg mx-auto">
-      <div className="px-6 pt-12 pb-6 bg-white dark:bg-slate-900 sticky top-0 z-10 transition-colors duration-300">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Suporte</h1>
-      </div>
-      <div className="p-6 pt-2 overflow-y-auto space-y-6">
-        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-800">
-          <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4">
-            <HelpCircle className="w-6 h-6" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Como podemos ajudar?</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Envie sua dúvida, sugestão ou reporte um problema diretamente para nossa equipe.</p>
-        </div>
-
-        {sendSuccess ? (
-          <div className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-700 text-center animate-fade-in shadow-sm">
-            <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
-              <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Mensagem Enviada!</h4>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Nossa equipe responderá em breve.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <textarea 
-              className="w-full p-5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-[2rem] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 resize-none shadow-sm transition-all"
-              rows={6}
-              placeholder="Digite sua mensagem detalhadamente aqui..."
-              value={supportMessage}
-              onChange={(e) => setSupportMessage(e.target.value)}
-            />
-            <button 
-              onClick={handleSendSupport}
-              disabled={isSending || !supportMessage.trim()}
-              className="w-full py-4 bg-emerald-600 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-lg"
-            >
-              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enviar Mensagem'}
-            </button>
-            
-            <div className="pt-4 flex flex-col items-center gap-4">
-               <div className="flex items-center gap-2 text-slate-400">
-                  <div className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">Ou se preferir</span>
-                  <div className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
-               </div>
-               <button 
-                 onClick={() => window.open('https://wa.me/244921156899', '_blank')}
-                 className="w-full py-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-emerald-600 dark:text-emerald-400 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
-               >
-                 <MessageCircle className="w-5 h-5" /> Falar pelo WhatsApp
-               </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 };
 
 export const ClientHome: React.FC = () => {

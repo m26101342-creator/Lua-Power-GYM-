@@ -7,7 +7,7 @@ import { saveUser, getUserById } from '../services/userService';
 import { getClasses } from '../services/classService';
 import { calculateExpiryDate, formatDate } from '../utils/dateUtils';
 import { User, Phone, Calendar, Clock, ChevronRight, Camera, X, FileText, Banknote, Check, Loader2 } from 'lucide-react';
-import { UserRole, UserStatus, GymClass } from '../types';
+import { GymClass } from '../types';
 
 export const EditClient: React.FC = () => {
   const { id } = useParams();
@@ -17,9 +17,9 @@ export const EditClient: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    startDate: '',
-    duration: '',
-    amount: '',
+    startDate: new Date().toISOString().split('T')[0],
+    duration: '30',
+    amount: '0',
     avatar: '',
     notes: '',
   });
@@ -44,38 +44,38 @@ export const EditClient: React.FC = () => {
         if (id) {
           const client = await getUserById(id);
           if (client) {
-            let formattedPhone = client.phone;
-            if (!formattedPhone.trim().startsWith('+244')) {
+            const phone = client.phone || '';
+            let formattedPhone = phone;
+            if (formattedPhone && !formattedPhone.trim().startsWith('+244')) {
                formattedPhone = `+244 ${formattedPhone.trim()}`;
             }
     
-            let safeStartDate = '';
+            let safeStartDate = new Date().toISOString().split('T')[0];
             if (client.subscription_start_date) {
-              try { safeStartDate = client.subscription_start_date.split('T')[0]; } catch(e) { safeStartDate = new Date().toISOString().split('T')[0]; }
-            } else { safeStartDate = new Date().toISOString().split('T')[0]; }
+              try { safeStartDate = client.subscription_start_date.split('T')[0]; } catch(e) {}
+            }
     
-            const diffTime = Math.abs(new Date(client.subscription_end_date || '').getTime() - new Date(client.subscription_start_date || '').getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 30;
-
-            let totalAmount = 0;
-            if (client.enrolled_classes) {
-                client.enrolled_classes.forEach(classId => {
-                    const cls = classes.find(c => c.id === classId);
-                    if (cls) totalAmount += cls.price;
-                });
+            let diffDays = 30;
+            if (client.subscription_start_date && client.subscription_end_date) {
+                try {
+                    const start = new Date(client.subscription_start_date).getTime();
+                    const end = new Date(client.subscription_end_date).getTime();
+                    if (!isNaN(start) && !isNaN(end)) {
+                        diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24));
+                    }
+                } catch(e) {}
             }
 
             setFormData({
-              name: client.name,
+              name: client.name || '',
               phone: formattedPhone,
               startDate: safeStartDate,
               duration: diffDays.toString(),
-              amount: (client.amount || totalAmount).toString(),
+              amount: (client.amount || 0).toString(),
               avatar: client.avatar || '',
               notes: client.notes || '',
             });
     
-            // Initialize selected classes from client data
             if (client.enrolled_classes) {
                 const map = new Map();
                 client.enrolled_classes.forEach(classId => {
@@ -96,7 +96,6 @@ export const EditClient: React.FC = () => {
     loadData();
   }, [id, navigate]);
 
-  // Recalculate total if classes change
   useEffect(() => {
     let total = 0;
     selectedClasses.forEach((price) => total += price);
@@ -228,7 +227,6 @@ export const EditClient: React.FC = () => {
     <Layout title="Editar Cliente" showBack onBack={() => navigate('/admin/dashboard')}>
       <form onSubmit={handleSubmit} className="space-y-8 mt-2" noValidate>
         
-        {/* Avatar */}
         <div className="flex justify-center mb-6">
           <div 
             onClick={() => fileInputRef.current?.click()}
@@ -252,7 +250,6 @@ export const EditClient: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          {/* Name */}
           <div className="group">
             <label className={`block text-xs font-bold uppercase tracking-wider mb-2 ml-1 ${errors.name ? 'text-rose-500' : 'text-slate-400'}`}>Nome Completo</label>
             <div className="relative">
@@ -270,7 +267,6 @@ export const EditClient: React.FC = () => {
              {errors.name && <p className="mt-2 ml-1 text-sm text-rose-500 font-medium animate-fade-in">{errors.name}</p>}
           </div>
 
-          {/* Phone */}
           <div className="group">
             <label className={`block text-xs font-bold uppercase tracking-wider mb-2 ml-1 ${errors.phone ? 'text-rose-500' : 'text-slate-400'}`}>WhatsApp (Angola)</label>
             <div className="relative">
@@ -288,7 +284,6 @@ export const EditClient: React.FC = () => {
              {errors.phone && <p className="mt-2 ml-1 text-sm text-rose-500 font-medium animate-fade-in">{errors.phone}</p>}
           </div>
 
-          {/* Class Selection */}
           <div className="group">
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Selecionar Modalidade (Aula)</label>
             <div className="space-y-3">
@@ -309,7 +304,7 @@ export const EditClient: React.FC = () => {
                             <input 
                               type="number" 
                               className="w-full p-2 bg-white rounded-xl border border-emerald-200 text-emerald-800 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                              value={selectedClasses.get(cls.id)}
+                              value={selectedClasses.get(cls.id) || 0}
                               onChange={(e) => updateClassPrice(cls.id, e.target.value)}
                             />
                          </div>
@@ -321,7 +316,6 @@ export const EditClient: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Start Date */}
             <div className="group">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Início</label>
               <div className="relative" onClick={() => setShowDatePicker(true)}>
@@ -340,7 +334,6 @@ export const EditClient: React.FC = () => {
               />
             </div>
 
-            {/* Duration */}
             <div className="group">
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Duração (Dias)</label>
               <div className="relative">
@@ -359,7 +352,6 @@ export const EditClient: React.FC = () => {
             </div>
           </div>
 
-          {/* Amount */}
           <div className="group">
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Total a Pagar (Kz)</label>
             <div className="relative">
@@ -376,7 +368,6 @@ export const EditClient: React.FC = () => {
             </div>
           </div>
 
-          {/* Notes */}
           <div className="group">
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">Observações</label>
             <div className="relative">
@@ -393,7 +384,6 @@ export const EditClient: React.FC = () => {
           </div>
         </div>
 
-        {/* Expiry */}
         <div className="bg-emerald-50/50 p-5 rounded-2xl border border-emerald-100 flex items-center justify-between">
           <div>
             <span className="block text-xs font-bold text-emerald-600 uppercase tracking-wider">Vencimento Previsto</span>

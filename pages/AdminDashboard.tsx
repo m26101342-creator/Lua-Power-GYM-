@@ -37,6 +37,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { Layout } from '../components/Layout';
+import { GymLoading } from '../components/GymLoading';
 import { QRScanner } from '../components/QRScanner';
 import { ScannedClientModal } from '../components/ScannedClientModal';
 import { PricingTable } from '../components/PricingTable';
@@ -553,10 +554,7 @@ export const AdminDashboard: React.FC = () => {
   if (loading && clients.length === 0) {
       return (
           <Layout title={getTabTitle()} hideHeader={true} fullWidth>
-             <div className="flex flex-col items-center justify-center h-screen">
-                <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
-                <p className="text-slate-400">Iniciando Simulação...</p>
-             </div>
+             <GymLoading />
           </Layout>
       );
   }

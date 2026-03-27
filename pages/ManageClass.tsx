@@ -6,6 +6,7 @@ import { CustomTimePicker } from '../components/CustomTimePicker';
 import { Modal } from '../components/Modal';
 import { GymClass } from '../types';
 import { Dumbbell, User, Clock, Users, Calendar, Check, Banknote, Loader2 } from 'lucide-react';
+import { GymLoading } from '../components/GymLoading';
 
 export const ManageClass: React.FC = () => {
   const { id } = useParams();
@@ -85,9 +86,7 @@ export const ManageClass: React.FC = () => {
   if (loading) {
       return (
           <Layout title="Carregando...">
-              <div className="flex justify-center items-center h-full pt-20">
-                  <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
-              </div>
+              <GymLoading />
           </Layout>
       );
   }

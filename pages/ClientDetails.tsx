@@ -6,7 +6,8 @@ import { generateClientPDF } from '../services/pdfService';
 import { User, UserStatus, GymClass } from '../types';
 import { getUserStatus, formatDate, calculateExpiryDate } from '../utils/dateUtils';
 import { getClasses } from '../services/classService';
-import { Trash2, RefreshCw, MessageCircle, Calendar, Phone, CheckCircle2, AlertTriangle, XCircle, FileText, Download, Pencil, Banknote, Dumbbell, Loader2, Info } from 'lucide-react';
+import { Trash2, RefreshCw, MessageCircle, Calendar, Phone, CheckCircle2, AlertTriangle, XCircle, FileText, Download, Pencil, Banknote, Dumbbell, Info } from 'lucide-react';
+import { GymLoading } from '../components/GymLoading';
 
 export const ClientDetails: React.FC = () => {
   const { id } = useParams();
@@ -60,9 +61,7 @@ export const ClientDetails: React.FC = () => {
   if (loading) {
       return (
           <Layout title="Carregando...">
-              <div className="flex justify-center items-center h-full pt-20">
-                  <Loader2 className="w-10 h-10 animate-spin text-emerald-500" />
-              </div>
+              <GymLoading />
           </Layout>
       );
   }
